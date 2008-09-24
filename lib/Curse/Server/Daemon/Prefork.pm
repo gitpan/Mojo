@@ -336,7 +336,7 @@ __END__
 
 =head1 NAME
 
-Curse::Daemon::Prefork - Prefork HTTP Server
+Curse::Server::Daemon::Prefork - Prefork HTTP Server
 
 =head1 SYNOPSIS
 

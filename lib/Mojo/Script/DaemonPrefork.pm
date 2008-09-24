@@ -36,7 +36,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Script::Daemon::Prefork - Prefork Daemon Script
+Mojo::Script::DaemonPrefork - Prefork Daemon Script
 
 =head1 SYNOPSIS
 

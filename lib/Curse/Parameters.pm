@@ -152,7 +152,7 @@ __END__
 
 =head1 NAME
 
-Curse::Parameters- Form Parameters
+Curse::Parameters - Form Parameters
 
 =head1 SYNOPSIS
 

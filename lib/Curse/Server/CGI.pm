@@ -84,7 +84,7 @@ __END__
 
 =head1 NAME
 
-Curse::Server::FastCGI - FastCGI Server
+Curse::Server::CGI - CGI Server
 
 =head1 SYNOPSIS
 

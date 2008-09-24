@@ -13,7 +13,7 @@ require Cwd;
 require File::Spec;
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.2';
+our $VERSION = '0.3';
 
 sub handler { Carp::croak('Method "handler" not implemented in subclass') }
 

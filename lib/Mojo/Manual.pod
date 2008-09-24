@@ -1,0 +1,30 @@
+# Copyright (C) 2008, Sebastian Riedel.
+
+=head1 The Mojo Manual
+
+=over 4
+
+=item L<Mojo::Manual::GettingStarted>
+
+Step by step instructions to get you started.
+
+=item L<Mojo::Manual::CurseGuide>
+
+Introduction to L<Curse>, our HTTP 1.1 implementation.
+
+=item L<Mojo::Manual::FrameworkBuilding>
+
+Building your own frameworks based upon L<Mojo>.
+
+=item L<Mojo::Manual::Cookbook>
+
+Cooking with L<Mojo>!
+
+=item L<Mojo::CodingGuidelines>
+
+Coding guidelines and mission statement.
+A must read for developers!
+
+=back
+
+=cut

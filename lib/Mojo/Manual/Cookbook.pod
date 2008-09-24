@@ -1,0 +1,8 @@
+# Copyright (C) 2008, Sebastian Riedel.
+
+=head1 Cookbook
+
+This was supposed to be written as part of a Perl Foundation grant,
+sadly the Perl Foundation didn't have the money to sponsor it.
+
+=cut

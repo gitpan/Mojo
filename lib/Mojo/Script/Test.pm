@@ -7,9 +7,9 @@ use warnings;
 
 use base 'Mojo::Script';
 
-use Cwd 'realpath';
+use Cwd;
 use FindBin;
-use File::Spec::Functions qw/abs2rel catdir catfile splitdir/;
+use File::Spec;
 use Test::Harness;
 
 __PACKAGE__->attr('description', chained => 1, default => <<'EOF');
@@ -26,12 +26,12 @@ sub run {
 
     # Search tests
     unless (@tests) {
-        my @base = splitdir(abs2rel($FindBin::Bin));
+        my @base = File::Spec->splitdir(File::Spec->abs2rel($FindBin::Bin));
         # Test directory in the same directory as mojo.pl (t)
-        my $path = catdir(@base, 't');
+        my $path = File::Spec->catdir(@base, 't');
 
         # Test dirctory in the directory above mojo.pl (../t)
-        $path = catdir(@base, '..', 't') unless -d $path;
+        $path = File::Spec->catdir(@base, '..', 't') unless -d $path;
         unless (-d $path) {
             print "Can't find test directory.\n";
             return 0;
@@ -44,15 +44,16 @@ sub run {
             for my $file (readdir($fh)) {
                 next if $file eq '.';
                 next if $file eq '..';
-                my $fpath = catfile($dir, $file);
-                push @dirs, catdir($dir, $file) if -d $fpath;
-                push @tests, abs2rel(realpath(catfile(splitdir($fpath))))
-                  if (-f $fpath) && ($fpath =~ /\.t$/);
+                my $fpath = File::Spec->catfile($dir, $file);
+                push @dirs, File::Spec->catdir($dir, $file) if -d $fpath;
+                push @tests, File::Spec->abs2rel(Cwd::realpath(
+                    File::Spec->catfile(File::Spec->splitdir($fpath))
+                )) if (-f $fpath) && ($fpath =~ /\.t$/);
             }
             closedir $fh;
         }
 
-        $path = realpath($path);
+        $path = Cwd::realpath($path);
         print "Running tests from '$path'.\n";
     }
 

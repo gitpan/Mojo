@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-use Curse::Server::CGI;
+use Mojo::Server::CGI;
 
 __PACKAGE__->attr('description', chained => 1, default => <<'EOF');
 * Start the cgi script. *
@@ -17,7 +17,7 @@ EOF
 
 # Hi, Super Nintendo Chalmers!
 sub run {
-    Curse::Server::CGI->new->run;
+    Mojo::Server::CGI->new->run;
     return shift;
 }
 
@@ -36,7 +36,7 @@ Mojo::Script::Cgi - CGI Script
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Cgi> is a simple script interface to L<Curse::Server::CGI>.
+L<Mojo::Script::Cgi> is a simple script interface to L<Mojo::Server::CGI>.
 
 =head1 ATTRIBUTES
 

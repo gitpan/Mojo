@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-use Curse::ByteStream;
+use Mojo::ByteStream;
 
 __PACKAGE__->attr('description', chained => 1, default => <<'EOF');
 * Generate application directory structure. *
@@ -24,7 +24,7 @@ sub run {
 
     my $name = $class;
     $name =~ s/:://g;
-    $name = Curse::ByteStream->new($name)->decamelize->as_string;
+    $name = Mojo::ByteStream->new($name)->decamelize->as_string;
 
     # Root
     my $root = $self->get_path($name);
@@ -140,7 +140,7 @@ use base 'Mojo';
 sub handler {
     my ($self, $tx) = @_;
 
-    # $tx is a Curse::Transaction instance
+    # $tx is a Mojo::Transaction instance
     $tx->res->code(200);
     $tx->res->headers->content_type('text/plain');
     $tx->res->body('Hello Mojo!');

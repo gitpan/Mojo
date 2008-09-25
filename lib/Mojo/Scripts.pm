@@ -7,8 +7,8 @@ use warnings;
 
 use base 'Mojo::Script';
 
-use Curse::ByteStream;
-use Nevermore::Loader;
+use Mojo::ByteStream;
+use Mojo::Loader;
 
 __PACKAGE__->attr([qw/base namespace/],
     chained => 1,
@@ -35,20 +35,16 @@ sub run {
 
     # Run script
     if ($script) {
-        my $module = $self->namespace . '::'
-          . Curse::ByteStream->new($script)->camelize;
-        Nevermore::Loader->new
-          ->base($self->base)
-          ->modules($module)
-          ->instantiate
-          ->run(@args);
+        my $mod = $self->namespace . '::'
+          . Mojo::ByteStream->new($script)->camelize;
+        Mojo::Loader->new->base($self->base)->mods($mod)->inst->run(@args);
         return $self;
     }
 
     # Load scripts
-    my @instances = Nevermore::Loader->new($self->namespace)
+    my @instances = Mojo::Loader->new($self->namespace)
       ->base($self->base)
-      ->instantiate;
+      ->inst;
 
     # Print overview
     print $self->message;
@@ -60,7 +56,7 @@ sub run {
         my $module = ref $instance;
         my $namespace = $self->namespace;
         $module =~ s/^$namespace\:\://;
-        my $name = Curse::ByteStream->new($module)->decamelize;
+        my $name = Mojo::ByteStream->new($module)->decamelize;
 
         # Print description
         print "$name:\n";

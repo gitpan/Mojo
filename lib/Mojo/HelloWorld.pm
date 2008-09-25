@@ -38,11 +38,11 @@ Mojo::HelloWorld - Default Application
 
 =head1 SYNOPSIS
 
-    use Curse::Transaction;
+    use Mojo::Transaction;
     use Mojo::HelloWorld;
 
     my $hello = Mojo::HelloWorld->new;
-    my $tx = $hello->handler(Curse::Transaction->new);
+    my $tx = $hello->handler(Mojo::Transaction->new);
 
 =head1 DESCRIPTION
 

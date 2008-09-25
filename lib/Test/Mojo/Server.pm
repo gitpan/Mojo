@@ -5,26 +5,21 @@ package Test::Mojo::Server;
 use strict;
 use warnings;
 
-use base 'Nevermore';
+use base 'Mojo::Base';
 
-use FindBin;
-use lib "$FindBin::Bin/lib";
+use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
 
-use Cwd 'realpath';
-use File::Path qw/mkpath rmtree/;
-use File::Spec::Functions qw/catdir catfile splitdir/;
-use FindBin;
 use IO::Socket::INET;
+use Mojo::Home;
+use Mojo::Template;
 use Test::Builder::Module;
-use Voodoo;
 
-__PACKAGE__->attr('command', chained => 1);
-__PACKAGE__->attr('debug',   chained => 1, default => sub { 0 });
-__PACKAGE__->attr('pid',     chained => 1);
-__PACKAGE__->attr('port',    chained => 1);
-__PACKAGE__->attr('script',  chained => 1, default => sub { 'mojo.pl' });
+__PACKAGE__->attr([qw/command pid port/], chained => 1);
+__PACKAGE__->attr('home',
+    chained => 1,
+    default => sub { Mojo::Home->new }
+);
 __PACKAGE__->attr('timeout', chained => 1, default => sub { 5 });
-__PACKAGE__->attr('tmpdir',  chained => 1);
 
 # Hello, my name is Barney Gumble, and I'm an alcoholic.
 # Mr Gumble, this is a girl scouts meeting.
@@ -33,46 +28,6 @@ sub new {
     my $self = shift->SUPER::new();
     $self->{_tb} = Test::Builder->new;
     return $self;
-}
-
-sub detect_lib_ok {
-    my ($self, $desc) = @_;
-    my $tb = $self->{_tb};
-
-    my $script = $self->_detect_script;
-    return $tb->ok(0, $desc) unless $script;
-
-    my @dir = splitdir $script;
-    pop @dir;
-
-    # Detect mojo.pl
-    my $path = catdir @dir, 'lib';
-    return $path if -d $path;
-    for my $i (1 .. 5) {
-        $path = catdir @dir, ('..') x $i, 'lib';
-        last if -d $path;
-    }
-    if (-d $path) {
-        $tb->ok(1, $desc);
-        return $path;
-    }
-    return $tb->ok(0, $desc);
-}
-
-sub detect_script_ok {
-    my ($self, $desc) = @_;
-    my $tb = $self->{_tb};
-
-    my $path = $self->_detect_script;
-
-    # mojo.pl not found
-    unless ($path) {
-        $tb->diag('Unable to find mojo.pl');
-        return $tb->ok(0, $desc);
-    }
-
-    $tb->ok(1, $desc);
-    return $path;
 }
 
 sub generate_port_ok {
@@ -87,61 +42,6 @@ sub generate_port_ok {
 
     $tb->ok(0, $desc);
     return 0;
-}
-
-sub mk_tmpdir_ok {
-    my ($self, $desc) = @_;
-    my $tb = $self->{_tb};
-    my $path = $self->tmpdir(
-        realpath(catdir(splitdir($FindBin::Bin), 'tmp'))
-    )->tmpdir;
-    rmtree($path) if -e $path;
-    mkpath($path) or return $tb->ok(0, $desc);
-    $tb->ok(1, $desc);
-    return $path;
-}
-
-sub render_to_file_ok {
-    my ($self, $src, $file, $args, $desc) = @_;
-    my $tb = $self->{_tb};
-
-    return $tb->ok(0, $desc) unless $self->tmpdir;
-
-    # File
-    my $path = catfile $self->tmpdir, $file;
-
-    # Render
-    my @args = $args ? @{$args} : ();
-    my $voodoo = Voodoo->new;
-    $voodoo->render_to_file($src, $path, @args)
-      ? $tb->ok(1, $desc)
-      : $tb->ok(0, $desc);
-    return $path;
-}
-
-sub render_to_tmpfile_ok {
-    my ($self, $src, $args, $desc) = @_;
-    my $tb = $self->{_tb};
-
-    return $tb->ok(0, $desc) unless $self->tmpdir;
-
-    # Generate file
-    my $file;
-    my $i = 1;
-    while ($i++) {
-        $file = $i;
-        last unless -e catfile($self->tmpdir, $i);
-    }
-
-    return $self->render_to_file_ok($src, $file, $args, $desc);
-}
-
-sub rm_tmpdir_ok {
-    my ($self, $desc) = @_;
-    my $tb = $self->{_tb};
-    my $path = $self->tmpdir;
-    rmtree($path) or return $tb->ok(0, $desc);
-    return $tb->ok(1, $desc);
 }
 
 sub server_ok {
@@ -168,7 +68,7 @@ sub start_daemon_ok {
     return $tb->ok(0, $desc) unless $port;
 
     # Path
-    my $path = $self->_detect_script;
+    my $path = $self->home->script_as_string;
     return $tb->ok(0, $desc) unless $path;
 
     # Prepare command
@@ -186,7 +86,7 @@ sub start_daemon_prefork_ok {
     return $tb->ok(0, $desc) unless $port;
 
     # Path
-    my $path = $self->_detect_script;
+    my $path = $self->home->script_as_string;
     return $tb->ok(0, $desc) unless $path;
 
     # Prepare command
@@ -252,8 +152,10 @@ sub stop_server_ok {
     }
 
     # Debug
-    sysread $self->{_server}, my $buffer, 4096;
-    warn "\nSERVER STDOUT: $buffer\n" if $self->debug;
+    if (DEBUG) {
+        sysread $self->{_server}, my $buffer, 4096;
+        warn "\nSERVER STDOUT: $buffer\n";
+    }
 
     # Stop server
     $self->_stop_server();
@@ -285,24 +187,6 @@ sub _check_server {
     }
 }
 
-sub _detect_script {
-    my $self = shift;
-
-    # Detect mojo.pl
-    my $path;
-    my $script = $self->script;
-    for my $i (1 .. 5) {
-        $path = catfile(splitdir($FindBin::Bin), ('..') x $i, $script);
-        last if -f $path;
-        $path = catfile(
-            splitdir($FindBin::Bin), ('..') x $i, 'script', $script
-        );
-        last if -f $path;
-    }
-    $path = realpath($path);
-    return -f $path ? $path : 0;
-}
-
 sub _generate_port {
     my $self = shift;
 
@@ -326,7 +210,7 @@ sub _start_server {
     my $tb = $self->{_tb};
 
     my $command = $self->command;
-    warn "\nSERVER COMMAND: $command\n" if $self->debug;
+    warn "\nSERVER COMMAND: $command\n" if DEBUG;
 
     # Run server
     my $pid = open($self->{_server}, "$command |");
@@ -362,7 +246,7 @@ Test::Mojo::Server - Server Tests
 
 =head1 SYNOPSIS
 
-    use Curse::Transaction;
+    use Mojo::Transaction;
     use Mojo::Test::Server;
 
     my $server = Test::Mojo::Server->new;
@@ -380,10 +264,10 @@ L<Mojo::Test::Server> is a test harness for server tests.
     my $command = $server->command;
     $server     = $server->command("lighttpd -D -f $config");
 
-=head2 C<debug>
+=head2 C<home>
 
-    my $debug = $server->debug;
-    $server   = $server->debug(1);
+    my $home = $server->home;
+    $server  = $server->home(Mojo::Home->new);
 
 =head2 C<pid>
 
@@ -394,72 +278,24 @@ L<Mojo::Test::Server> is a test harness for server tests.
     my $port = $server->port;
     $server  = $server->port(3000);
 
-=head2 C<script>
-
-    my $script = $server->script;
-    $server    = $server->script('mojo.pl');
-
 =head2 C<timeout>
 
     my $timeout = $server->timeout;
     $server     = $server->timeout(5);
 
-=head2 C<tmpdir>
-
-    my $tmpdir = $server->tmpdir;
-    $server    = $server->tmpdir('/tmp/foo');
-
 =head1 METHODS
 
-L<Mojo::Test::Server> inherits all methods from L<Nevermore> and implements
+L<Mojo::Test::Server> inherits all methods from L<Mojo::Base> and implements
 the following new ones.
 
 =head2 C<new>
 
     my $server = Mojo::Test::Server->new;
 
-=head2 C<detect_lib_ok>
-
-    my $lib = $server->detect_lib_ok;
-    my $lib = $server->detect_lib_ok('lib test');
-
-=head2 C<detect_script_ok>
-
-    my $script = $server->detect_script_ok;
-    my $script = $server->detect_script_ok('script test');
-
 =head2 C<generate_port_ok>
 
     my $port = $server->generate_port_ok;
     my $port = $server->generate_port_ok('port test');
-
-=head2 C<mk_tmpdir_ok>
-
-    my $tmpdir = $server->mk_tmpdir_ok;
-    my $tmpdir = $server->mk_tmpdir_ok('tmpdir test');
-
-=head2 C<render_to_file_ok>
-
-    my $file = $server->render_to_file_ok($template, '/tmp/file.txt');
-    my $file = $server->render_to_file_ok(
-        $template,
-        '/tmp/file.txt',
-        [qw/foo bar/],
-        'file test'
-    );
-
-=head2 C<render_to_tmpfile_ok>
-
-    my $tmpfile = $server->render_to_tmpfile_ok($template);
-    my $tmpfile = $server->render_to_tmpfile_ok(
-        $template,
-        [qw/foo bar/],
-        'file test'
-    );
-
-=head2 C<rm_tmpdir_ok>
-
-    $server->rm_tmpdir_ok('cleanup test');
 
 =head2 C<server_ok>
 

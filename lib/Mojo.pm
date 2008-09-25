@@ -5,61 +5,22 @@ package Mojo;
 use strict;
 use warnings;
 
-use base 'Nevermore';
+use base 'Mojo::Base';
 
 # No imports to make subclassing a bit easier
 require Carp;
-require Cwd;
-require File::Spec;
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.3';
+our $VERSION = '0.5';
 
 sub handler { Carp::croak('Method "handler" not implemented in subclass') }
-
-sub home {
-    my ($self, $home) = @_;
-
-    # Set
-    if ($home) {
-        $self->{home} = $home;
-        return $self;
-    }
-
-    # Default to MOJO_HOME environment variable
-    $self->{home} ||= $ENV{MOJO_HOME};
-
-    # Get
-    return $self->{home} if $self->{home};
-
-    # Try to detect a home directory
-    my $class = ref $self;
-    my $file = "$class.pm";
-    $file =~ s/::/\//g;
-
-    if (my $entry = $INC{$file}) {
-        my $path = $entry;
-        $path =~ s/$file$//;
-        my @home = File::Spec->splitdir($path);
-
-        # Remove "lib" and "blib"
-        pop @home while $home[-1] =~ /^b?lib$/ || $home[-1] eq '';
-
-        # Check for "mojo.pl"
-        return Cwd::realpath(File::Spec->catdir(@home))
-          if -f File::Spec->catfile(@home, 'mojo.pl')
-          || -f File::Spec->catfile(@home, qw/script mojo.pl/);
-    }
-
-    return undef;
-}
 
 1;
 __END__
 
 =head1 NAME
 
-Mojo - Yeah, Baby, Yeah!
+Mojo - Web Framework
 
 =head1 SYNOPSIS
 
@@ -77,16 +38,9 @@ L<Mojo> is a framework for web framework developers.
 *IMPORTANT!* This is beta software, don't use it for anything serious,
 it might eat your puppy or cause the apocalypse. (You've been warned...)
 
-=head1 ATTRIBUTES
-
-=head2 C<home>
-
-    my $home = $mojo->home;
-    my $mojo = $mojo->home('/home/sri/mojoapp');
-
 =head1 METHODS
 
-L<Mojo> inherits all methods from L<Nevermore> and implements the following
+L<Mojo> inherits all methods from L<Mojo::Base> and implements the following
 new ones.
 
 =head2 C<handler>
@@ -94,6 +48,10 @@ new ones.
     $tx = $mojo->handler($tx);
 
 =head1 SUPPORT
+
+=head2 Web
+
+    http://getmojo.kraih.com
 
 =head2 IRC
 

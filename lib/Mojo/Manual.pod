@@ -8,9 +8,9 @@
 
 Step by step instructions to get you started.
 
-=item L<Mojo::Manual::CurseGuide>
+=item L<Mojo::Manual::HTTPGuide>
 
-Introduction to L<Curse>, our HTTP 1.1 implementation.
+Introduction to our HTTP 1.1 implementation.
 
 =item L<Mojo::Manual::FrameworkBuilding>
 

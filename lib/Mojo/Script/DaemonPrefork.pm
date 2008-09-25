@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-use Curse::Server::Daemon::Prefork;
+use Mojo::Server::Daemon::Prefork;
 
 __PACKAGE__->attr('description', chained => 1, default => <<'EOF');
 * Start the prefork daemon. *
@@ -23,9 +23,8 @@ sub run {
     my ($self, $port) = @_;
 
     # Start server
-    my $daemon = Curse::Server::Daemon::Prefork->new;
+    my $daemon = Mojo::Server::Daemon::Prefork->new;
     $daemon->port($port) if $port;
-    $daemon->debug(1);
     $daemon->run;
 
     return $self;
@@ -47,7 +46,7 @@ Mojo::Script::DaemonPrefork - Prefork Daemon Script
 =head1 DESCRIPTION
 
 L<Mojo::Script::Daemon::Prefork> is a simple script interface to
-L<Curse::Server::Daemon::Prefork>.
+L<Mojo::Server::Daemon::Prefork>.
 
 =head1 ATTRIBUTES
 

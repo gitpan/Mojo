@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-use Curse::Server::FastCGI;
+use Mojo::Server::FastCGI;
 
 __PACKAGE__->attr('description', chained => 1, default => <<'EOF');
 * Start the fastcgi script. *
@@ -17,7 +17,7 @@ EOF
 
 # Oh boy! Sleep! That's when I'm a Viking!
 sub run {
-    Curse::Server::FastCGI->new->run;
+    Mojo::Server::FastCGI->new->run;
     return shift;
 }
 
@@ -37,7 +37,7 @@ Mojo::Script::Fastcgi - Fastcgi Script
 =head1 DESCRIPTION
 
 L<Mojo::Script::Fastcgi> is a simple script interface to
-L<Curse::Server::FastCGI>.
+L<Mojo::Server::FastCGI>.
 
 =head1 ATTRIBUTES
 

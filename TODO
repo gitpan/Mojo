@@ -1,12 +1,12 @@
 - Test::Mojo::* needs a better API.
 
 - Chunked transfer encoding could use better abstraction, it's currently
-  split between Curse::Message and Curse::Content.
+  split between Mojo::Message and Mojo::Content.
   
-- The ability to add more content handlers besides Curse::Content and
-  Curse::Content::MultiPart might be interesting.
+- The ability to add more content handlers besides Mojo::Content and
+  Mojo::Content::MultiPart might be interesting.
 
-- A lot of code needs to be cleaned, especially around Curse::Message.
+- A lot of code needs to be cleaned, especially around Mojo::Message.
 
 - Tons of RFC spec tests need to be written.
 

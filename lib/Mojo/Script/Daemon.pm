@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-use Curse::Server::Daemon;
+use Mojo::Server::Daemon;
 
 __PACKAGE__->attr('description', chained => 1, default => <<'EOF');
 * Start the daemon. *
@@ -24,7 +24,7 @@ sub run {
 
     # Start server
     $port ||= 3000;
-    my $daemon = Curse::Server::Daemon->new;
+    my $daemon = Mojo::Server::Daemon->new;
     $daemon->port($port);
     $daemon->run;
 
@@ -47,7 +47,7 @@ Mojo::Script::Daemon - Daemon Script
 =head1 DESCRIPTION
 
 L<Mojo::Script::Daemon> is a simple script interface to
-L<Curse::Server::Daemon>.
+L<Mojo::Server::Daemon>.
 
 =head1 ATTRIBUTES
 

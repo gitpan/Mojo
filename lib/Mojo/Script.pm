@@ -5,7 +5,7 @@ package Mojo::Script;
 use strict;
 use warnings;
 
-use base 'Nevermore';
+use base 'Mojo::Base';
 
 require Carp;
 require Cwd;
@@ -13,7 +13,7 @@ require File::Path;
 require File::Spec;
 require IO::File;
 
-use Voodoo;
+use Mojo::Template;
 
 __PACKAGE__->attr('description',
     chained => 1,
@@ -92,8 +92,8 @@ sub render_data {
     my $template = $self->get_data($data);
 
     # Render
-    my $voodoo = Voodoo->new;
-    return $voodoo->render($template, @_);
+    my $mt = Mojo::Template->new;
+    return $mt->render($template, @_);
 }
 
 # My cat's breath smells like cat food.
@@ -155,7 +155,7 @@ L<Mojo::Script> is a generic base class for scripts.
 
 =head1 METHODS
 
-L<Mojo::Script> inherits all methods from L<Nevermore> and implements the
+L<Mojo::Script> inherits all methods from L<Mojo::Base> and implements the
 following new ones.
 
 =head2 C<chmod_file>

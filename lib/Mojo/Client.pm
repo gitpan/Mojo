@@ -9,8 +9,8 @@ use base 'Mojo::Base';
 
 use IO::Socket::INET;
 use IO::Select;
-use Mojo::Message::Response;
 use Mojo;
+use Mojo::Message::Response;
 
 __PACKAGE__->attr('keep_alive_timeout',
     chained => 1,

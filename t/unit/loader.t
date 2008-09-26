@@ -11,6 +11,7 @@ use FindBin;
 use lib "$FindBin::Bin/lib";
 
 use File::Spec;
+use File::Temp;
 use IO::File;
 
 # Bad bees. Get away from my sugar.
@@ -54,17 +55,17 @@ is(ref $instances[0], 'LoaderTest::B');
 
 # Reload
 my $file = IO::File->new;
-my $dir = File::Spec->catdir(File::Spec->splitdir($FindBin::Bin), 'tmp');
-my $path = File::Spec->catfile($dir, 'reload.pl');
+my $dir = File::Temp::tempdir();
+my $path = File::Spec->catfile($dir, 'MojoTestReloader.pm');
 $file->open("> $path");
-$file->syswrite("package LoaderTest::Reloader;\nsub test { 23 }\n1;");
+$file->syswrite("package MojoTestReloader;\nsub test { 23 }\n1;");
 $file->close;
-require $path;
-is(LoaderTest::Reloader::test(), 23);
+push @INC, $dir;
+require MojoTestReloader;
+is(MojoTestReloader::test(), 23);
 sleep 1;
 $file->open("> $path");
-$file->syswrite("package LoaderTest::Reloader;\nsub test { 26 }\n1;");
+$file->syswrite("package MojoTestReloader;\nsub test { 26 }\n1;");
 $file->close;
 Mojo::Loader->reload;
-is(LoaderTest::Reloader::test(), 26);
-unlink $path;
+is(MojoTestReloader::test(), 26);

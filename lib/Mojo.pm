@@ -11,7 +11,7 @@ use base 'Mojo::Base';
 require Carp;
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.5';
+our $VERSION = '0.6';
 
 sub handler { Carp::croak('Method "handler" not implemented in subclass') }
 

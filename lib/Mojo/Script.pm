@@ -30,6 +30,24 @@ sub chmod_file {
     return $self;
 }
 
+sub cwd_dir {
+    my $self = shift;
+    my @parts;
+    for my $part (@_) {
+        push @parts, File::Spec->splitdir($part);
+    }
+    return File::Spec->catdir(Cwd::getcwd(), @parts);
+}
+
+sub cwd_file {
+    my $self = shift;
+    my @parts;
+    for my $part (@_) {
+        push @parts, File::Spec->splitdir($part);
+    }
+    return File::Spec->catfile(Cwd::getcwd(), @parts);
+}
+
 sub get_data {
     my ($self, $data, $class) = @_;
     $class ||= ref $self;
@@ -58,15 +76,6 @@ sub get_data {
     }
 
     return undef;
-}
-
-sub get_path {
-    my $self = shift;
-    my @parts;
-    for my $part (@_) {
-        push @parts, File::Spec->splitdir($part);
-    }
-    return File::Spec->catfile(Cwd::getcwd(), @parts);
 }
 
 sub make_dir {
@@ -162,6 +171,15 @@ following new ones.
 
     $script = $script->chmod_file('/foo/bar.txt', 0644);
 
+
+=head2 C<cwd_dir>
+
+    my $path = $script->cwd_dir(qw/foo bar/);
+
+=head2 C<cwd_file>
+
+    my $path = $script->cwd_file(qw/foo bar.html/);
+
 =head2 C<get_data>
 
     my $data = $script->get_data('foo_bar');
@@ -172,7 +190,7 @@ following new ones.
 
 =head2 C<render_data>
 
-    my $data = $script->render_data('foo_bar');
+    my $data = $script->render_data('foo_bar', @arguments);
 
 =head2 C<run>
 

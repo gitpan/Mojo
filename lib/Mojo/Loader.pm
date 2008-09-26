@@ -11,6 +11,8 @@ use Carp qw/carp croak/;
 use File::Basename;
 use File::Spec;
 
+use constant DEBUG => $ENV{MOJO_LOADER_DEBUG} || 0;
+
 __PACKAGE__->attr([qw/base namespace/], chained => 1);
 
 my $STATS = {};
@@ -99,6 +101,8 @@ sub reload {
 
         # Modified?
         if ($mtime > $STATS->{$file}) {
+
+            warn "\n$key -> $file modified, reloading!\n" if DEBUG;
 
             # Unload
             delete $INC{$key};

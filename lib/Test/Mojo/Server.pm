@@ -11,7 +11,6 @@ use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
 
 use IO::Socket::INET;
 use Mojo::Home;
-use Mojo::Template;
 use Test::Builder::Module;
 
 __PACKAGE__->attr([qw/command pid port/], chained => 1);

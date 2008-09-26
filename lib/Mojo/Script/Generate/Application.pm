@@ -27,19 +27,19 @@ sub run {
     $name = Mojo::ByteStream->new($name)->decamelize->as_string;
 
     # Root
-    my $root = $self->get_path($name);
+    my $root = $self->cwd_dir($name);
     $self->make_dir($root);
 
     # "lib"
-    my $lib = $self->get_path($name, 'lib');
+    my $lib = $self->cwd_dir($name, 'lib');
     $self->make_dir($lib);
 
     # "t"
-    my $t = $self->get_path($name, 't');
+    my $t = $self->cwd_dir($name, 't');
     $self->make_dir($t);
 
     # "mojo.pl"
-    my $script = $self->get_path($name, 'mojo.pl');
+    my $script = $self->cwd_file($name, 'mojo.pl');
     my $content = $self->render_data('mojo.pl', $class);
     $self->write_file($script, $content);
     $self->chmod_file($script, 0744);
@@ -49,17 +49,17 @@ sub run {
     my @namespaces = split /::/, $class;
     for my $namespace (@namespaces) {
         push @current, $namespace;
-        my $path = $self->get_path($name, 'lib', @current);
+        my $path = $self->cwd_dir($name, 'lib', @current);
         last if @current == @namespaces;
         $self->make_dir($path);
     }
     $current[-1] .= '.pm';
-    my $appclass = $self->get_path($name, 'lib', @current);
+    my $appclass = $self->cwd_file($name, 'lib', @current);
     $content = $self->render_data('appclass', $class);
     $self->write_file($appclass, $content);
 
     # "basic.t"
-    my $basic = $self->get_path($name, 't', 'basic.t');
+    my $basic = $self->cwd_file($name, 't', 'basic.t');
     $content = $self->render_data('test', $class);
     $self->write_file($basic, $content);
 }

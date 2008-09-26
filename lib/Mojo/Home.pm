@@ -32,7 +32,7 @@ sub new {
 
 sub as_string {
     my $self = shift;
-    return File::Spec->catdir(@{$self->parts});
+    return File::Spec->catdir(@{$self->parts}, @_);
 }
 
 sub detect {
@@ -94,12 +94,17 @@ sub detect {
     return $self;
 }
 
+sub file_as_string {
+    my $self = shift;
+    return File::Spec->catfile(@{$self->parts}, @_);
+}
+
 sub lib_as_string {
     my $self = shift;
 
     # Directory found
-    my $path = File::Spec->catfile(@{$self->parts}, 'lib');
-    return $path if -s $path;
+    my $path = File::Spec->catdir(@{$self->parts}, 'lib');
+    return $path if -d $path;
 
     # No lib directory
     return undef;
@@ -167,12 +172,21 @@ following new ones.
 =head2 C<as_string>
 
     my $string = $home->as_string;
+    my $string = $home->as_string(qw/foo bar/);
     my $string = "$home";
 
 =head2 C<detect>
 
     $home = $home->detect;
     $home = $home->detect('My::App');
+
+=head2 C<file_as_string>
+
+    my $string = $home->file_as_string(qw/foo bar.html/);
+
+=head2 C<lib_as_string>
+
+    my $string = $home->lib_as_string;
 
 =head2 C<parse>
 

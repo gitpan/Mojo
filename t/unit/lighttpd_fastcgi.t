@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 use File::Spec;
-use FindBin;
+use File::Temp;
 use Mojo::Client;
 use Mojo::Template;
 use Mojo::Transaction;
@@ -25,7 +25,7 @@ use_ok('Mojo::Server::FastCGI');
 my $server = Test::Mojo::Server->new;
 my $port   = $server->generate_port_ok;
 my $script = $server->home->script_as_string;
-my $dir    = File::Spec->catfile(File::Spec->splitdir($FindBin::Bin), 'tmp');
+my $dir    = File::Temp::tempdir();
 my $config = File::Spec->catfile($dir, 'fcgi.config');
 my $mt     = Mojo::Template->new;
 
@@ -75,8 +75,3 @@ like($tx->res->body, qr/Mojo is working/);
 
 # Stop
 $server->stop_server_ok;
-
-# Cleanup
-unlink $config;
-unlink File::Spec->catfile($dir, 'access.log');
-unlink File::Spec->catfile($dir, 'error.log');

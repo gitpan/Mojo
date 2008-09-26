@@ -171,7 +171,7 @@ is($req->build,
 );
 
 # Build full HTTP 1.1 proxy request
-my $backup = $ENV{HTTP_PROXY};
+my $backup = $ENV{HTTP_PROXY} || undef;
 $ENV{HTTP_PROXY} = 'http://foo:bar@127.0.0.1:8080';
 $req = Mojo::Message::Request->new;
 $req->method('GET');

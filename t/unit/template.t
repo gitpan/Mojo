@@ -8,6 +8,7 @@ use warnings;
 use Test::More tests => 16;
 
 use File::Spec;
+use File::Temp;
 use FindBin;
 
 # When I held that gun in my hand, I felt a surge of power...
@@ -131,20 +132,15 @@ is($mt->render_file($file, 3), "23Hello World!\n");
 $mt = Mojo::Template->new;
 $mt->tag_start('[$-');
 $mt->tag_end('-$]');
-$file = File::Spec->catfile(
-    File::Spec->splitdir($FindBin::Bin), qw/tmp test.mt/
-);
+my $dir = File::Temp::tempdir();
+$file = File::Spec->catfile($dir, 'test.mt');
 is($mt->render_to_file(<<'EOF', $file), 1);
 <% my $i = 23 %> foo bar
 baz <%= $i %>
 test
 EOF
 $mt = Mojo::Template->new;
-my $file2 = File::Spec->catfile(
-    File::Spec->splitdir($FindBin::Bin), qw/tmp test2.mt/
-);
+my $file2 = File::Spec->catfile($dir, 'test2.mt');
 is($mt->render_file_to_file($file, $file2), 1);
 $mt = Mojo::Template->new;
 is($mt->render_file($file2), " foo bar\nbaz 23\ntest\n");
-unlink $file;
-unlink $file2;

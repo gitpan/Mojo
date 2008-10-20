@@ -10,13 +10,15 @@ use base 'Mojo::Base';
 use IO::Socket::INET;
 use IO::Select;
 use Mojo;
+use Mojo::Loader;
 use Mojo::Message::Response;
 
+__PACKAGE__->attr('continue_timeout', chained => 1, default => sub { 3 });
 __PACKAGE__->attr('keep_alive_timeout',
     chained => 1,
     default => sub { 15 }
 );
-__PACKAGE__->attr('timeout', chained => 1, default => sub { 5 });
+__PACKAGE__->attr('select_timeout', chained => 1, default => sub { 5 });
 
 sub connect {
     my ($self, $tx) = @_;
@@ -128,6 +130,21 @@ sub process_all {
     return @finished;
 }
 
+sub process_local {
+    my ($self, $class, $tx) = @_;
+
+    # Remote server
+    if (my $authority = $ENV{MOJO_AUTHORITY}) {
+        $tx->req->url->authority($authority);
+        return $self->process($tx);
+    }
+
+    my $app = Mojo::Loader->load_build($class);
+    $app->handler($tx);
+
+    return $tx;
+}
+
 sub spin {
     my ($self, @transactions) = @_;
 
@@ -156,7 +173,7 @@ sub spin {
         elsif ($tx->is_state('connect')) {
 
             # We might have to handle 100 Continue
-            $tx->{_continue} = 5
+            $tx->{_continue} = $self->continue_timeout
               if ($tx->req->headers->expect || '') =~ /100-continue/;
 
             # Ready for next state
@@ -239,7 +256,7 @@ sub spin {
 
     # Select
     my ($read, $write, undef) = IO::Select->select(
-      $read_select, $write_select, undef, $self->timeout);
+      $read_select, $write_select, undef, $self->select_timeout);
 
     # Make sure we don't wait longer than 5 seconds for a 100 Continue
     for my $tx (@transactions) {
@@ -276,9 +293,17 @@ sub spin {
             $res->parse($buffer);
 
             # We got a 100 Continue response
-            if ($res->is_state('done') && ($res->code == 100)) {
+            if ($res->is_state('done') && $res->code == 100) {
                 $tx->res(Mojo::Message::Response->new);
+                $tx->continued(1);
                 $tx->{_continue} = 0;
+            }
+
+            # We got something else
+            elsif ($res->is_state('done')) {
+                $tx->res($res);
+                $tx->continued(0);
+                $tx->state('done');
             }
         }
 
@@ -302,23 +327,21 @@ sub spin {
             $tx = $transaction{$name};
             $req = $tx->req;
 
-            # Wrong state
-            last unless $tx->is_state('write_body');
-
             # Body
-            $chunk = $req->get_body_chunk($tx->{_offset} || 0);
+            $chunk = $req->get_body_chunk($tx->{_offset} || 0)
+              if $tx->is_state('write_body');
+
+            # Headers
+            $chunk = $req->get_header_chunk($tx->{_offset} || 0)
+              if $tx->is_state('write_headers');
+
+            # Start line
+            $chunk = $req->get_start_line_chunk($tx->{_offset} || 0)
+              if $tx->is_state('write_start_line');
 
             # Content generator ready?
             last if defined $chunk;
         }
-
-        # Headers
-        $chunk = $req->get_header_chunk($tx->{_offset} || 0)
-          if $tx->is_state('write_headers');
-
-        # Start line
-        $chunk = $req->get_start_line_chunk($tx->{_offset} || 0)
-          if $tx->is_state('write_start_line');
 
         # Write chunk
         my $written = $tx->connection->syswrite($chunk, length $chunk);
@@ -368,7 +391,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Client - HTTP Client
+Mojo::Client - Client
 
 =head1 SYNOPSIS
 
@@ -388,15 +411,20 @@ L<Mojo::Client> is a full featured async io HTTP 1.1 client.
 
 =head1 ATTRIBUTES
 
+=head2 C<continue_timeout>
+
+    my $timeout = $client->continue_timeout;
+    $client     = $client->continue_timeout(5);
+
 =head2 C<keep_alive_timeout>
 
     my $keep_alive_timeout = $client->keep_alive_timeout;
     $client                = $client->keep_alive_timeout(15);
 
-=head2 C<timeout>
+=head2 C<select_timeout>
 
-    my $timeout = $client->timeout;
-    $client     = $client->timeout(5);
+    my $timeout = $client->select_timeout;
+    $client     = $client->select_timeout(5);
 
 =head1 METHODS
 
@@ -422,6 +450,10 @@ following new ones.
 =head2 C<process_all>
 
     @transactions = $client->process_all(@transactions);
+
+=head2 C<process_local>
+
+    $tx = $client->process_local('MyApp', $tx);
 
 =head2 C<spin>
 

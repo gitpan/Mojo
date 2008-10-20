@@ -10,8 +10,14 @@ use base 'Mojo::Base';
 # No imports to make subclassing a bit easier
 require Carp;
 
+use Mojo::Transaction;
+
 # Oh, so they have internet on computers now!
-our $VERSION = '0.6';
+our $VERSION = '0.7';
+
+*build_tx = \&build_transaction;
+
+sub build_transaction { return Mojo::Transaction->new }
 
 sub handler { Carp::croak('Method "handler" not implemented in subclass') }
 
@@ -20,7 +26,7 @@ __END__
 
 =head1 NAME
 
-Mojo - Web Framework
+Mojo - The Web In A Box!
 
 =head1 SYNOPSIS
 
@@ -28,20 +34,33 @@ Mojo - Web Framework
 
     sub handler {
         my ($self, $tx) = @_;
+
+        # Do magic things!
+
         return $tx;
     }
 
 =head1 DESCRIPTION
 
-L<Mojo> is a framework for web framework developers.
+L<Mojo> is a collection of libraries for web framework developers and example
+web frameworks.
 
 *IMPORTANT!* This is beta software, don't use it for anything serious,
 it might eat your puppy or cause the apocalypse. (You've been warned...)
+
+For userfriendly documentation see L<Mojo::Manual>.
 
 =head1 METHODS
 
 L<Mojo> inherits all methods from L<Mojo::Base> and implements the following
 new ones.
+
+=head2 C<build_tx>
+
+=head2 C<build_transaction>
+
+    my $tx = $mojo->build_tx;
+    my $tx = $mojo->build_transaction;
 
 =head2 C<handler>
 
@@ -62,21 +81,35 @@ new ones.
     http://lists.kraih.com/listinfo/mojo
     http://lists.kraih.com/listinfo/mojo-dev
 
+=head1 SEE ALSO
+
+L<Mojolicious>
+
 =head1 AUTHOR
 
 Sebastian Riedel, C<sri@cpan.org>.
 
 =head1 CREDITS
 
-Many parts of Mojo are based upon the work of others, thank you.
-(In alphabetical order)
+In alphabetical order:
 
 Andy Grundman
+
+Aristotle Pagaltzis
+
 Audrey Tang
+
 Christian Hansen
+
 Gisle Aas
+
 Jesse Vincent
+
 Marcus Ramberg
+
+Pedro Melo
+
+Shu Cho
 
 And thanks to everyone else i might have forgotten. (Please send me a mail)
 

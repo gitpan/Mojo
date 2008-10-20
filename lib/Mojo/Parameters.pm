@@ -6,11 +6,13 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use Mojo::ByteStream;
+use Mojo::URL;
 
-__PACKAGE__->attr('parameters', chained => 1, default => sub { [] });
+__PACKAGE__->attr('pair_separator', chained => 1, default => sub { '&' });
+__PACKAGE__->attr('parameters',     chained => 1, default => sub { [] });
 
 *param  = \&parameter;
 *params = \&parameters;
@@ -39,45 +41,6 @@ sub append {
     push @{$self->params}, @_;
 
     return $self;
-}
-
-sub as_hash {
-    my $self   = shift;
-    my $params = $self->params;
-
-    # Format
-    my %params;
-    for (my $i = 0; $i < @$params; $i += 2) {
-        my $name  = $params->[$i];
-        my $value = $params->[$i + 1];
-
-        # Array
-        if (exists $params{$name}) {
-            $params{$name} = [$params{$name}]
-              unless ref $params{$name} eq 'ARRAY';
-            push @{$params{$name}}, $value;
-        }
-
-        # String
-        else { $params{$name} = $value }
-    }
-
-    return \%params;
-}
-
-sub as_string {
-    my $self   = shift;
-    my $params = $self->params;
-
-    # Format
-    my @params;
-    for (my $i = 0; $i < @$params; $i += 2) {
-        my $name  = Mojo::ByteStream->new($params->[$i])->url_escape;
-        my $value = Mojo::ByteStream->new($params->[$i + 1])->url_escape;
-
-        push @params, "$name=$value";
-    }
-    return join '&', @params;
 }
 
 sub clone {
@@ -121,13 +84,17 @@ sub parse {
     # Shortcut
     return $self unless defined $_[0];
 
-    # String
-    for my $pair (split '&', $_[0]) {
+    # W3C suggests to also accept ";" as a separator
+    for my $pair (split /[\&\;]+/, $_[0]) {
+
+        # We replace "+" with whitespace
+        $pair =~ s/\+/\ /g;
+
         $pair =~ /^([^\=]*)=(.*)$/;
 
         # Unescape
-        my $name  = Mojo::ByteStream->new($1)->url_unescape->as_string;
-        my $value = Mojo::ByteStream->new($2)->url_unescape->as_string;
+        my $name  = Mojo::ByteStream->new($1)->url_unescape->to_string;
+        my $value = Mojo::ByteStream->new($2)->url_unescape->to_string;
 
         push @{$self->params}, $name, $value;
     }
@@ -147,12 +114,63 @@ sub remove {
     return $self;
 }
 
+sub to_hash {
+    my $self   = shift;
+    my $params = $self->params;
+
+    # Format
+    my %params;
+    for (my $i = 0; $i < @$params; $i += 2) {
+        my $name  = $params->[$i];
+        my $value = $params->[$i + 1];
+
+        # Array
+        if (exists $params{$name}) {
+            $params{$name} = [$params{$name}]
+              unless ref $params{$name} eq 'ARRAY';
+            push @{$params{$name}}, $value;
+        }
+
+        # String
+        else { $params{$name} = $value }
+    }
+
+    return \%params;
+}
+
+sub to_string {
+    my $self   = shift;
+    my $params = $self->params;
+
+    # Format
+    my @params;
+    for (my $i = 0; $i < @$params; $i += 2) {
+        my $name  = $params->[$i];
+        my $value = $params->[$i + 1];
+
+        # We replace whitespace with "+"
+        $name  =~ s/\ /\+/g;
+        $value =~ s/\ /\+/g;
+
+        # *( pchar / "/" / "?" )
+        $name  = Mojo::ByteStream->new($name)
+          ->url_escape($Mojo::URL::PCHAR . '\/\?');
+        $value = Mojo::ByteStream->new($value)
+          ->url_escape($Mojo::URL::PCHAR . '\/\?');
+
+        push @params, "$name=$value";
+    }
+
+    my $separator = $self->pair_separator;
+    return join $separator, @params;
+}
+
 1;
 __END__
 
 =head1 NAME
 
-Mojo::Parameters - Form Parameters
+Mojo::Parameters - Parameters
 
 =head1 SYNOPSIS
 
@@ -163,9 +181,16 @@ Mojo::Parameters - Form Parameters
 
 =head1 DESCRIPTION
 
-L<Mojo::Parameters> is a generic container for form parameters.
+L<Mojo::Parameters> is a container for form parameters.
 
 =head1 ATTRIBUTES
+
+=head2 C<pair_separator>
+
+    my $separator = $params->pair_separator;
+    $params       = $params->pair_separator(';');
+
+=head2 C<params>
 
 =head2 C<parameters>
 
@@ -188,13 +213,15 @@ the following new ones.
 
     $params = $params->append(foo => 'ba;r');
 
-=head2 C<as_string>
+=head2 C<clone>
 
-    my $string = $params->as_string;
+    my $params2 = $params->clone;
 
 =head2 C<merge>
 
     $params = $params->merge($params2, $params3);
+
+=head2 C<param>
 
 =head2 C<parameter>
 
@@ -209,5 +236,13 @@ the following new ones.
 =head2 C<remove>
 
     $params = $params->remove('foo');
+
+=head2 C<to_hash>
+
+    my $hash = $params->to_hash;
+
+=head2 C<to_string>
+
+    my $string = $params->to_string;
 
 =cut

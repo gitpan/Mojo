@@ -1,12 +1,23 @@
-- Test::Mojo::* needs a better API.
+*** IMPORTANT
 
-- Chunked transfer encoding could use better abstraction, it's currently
-  split between Mojo::Message and Mojo::Content.
-  
-- The ability to add more content handlers besides Mojo::Content and
-  Mojo::Content::MultiPart might be interesting.
+- Mojo::JSON needs to be written.
 
-- A lot of code needs to be cleaned, especially around Mojo::Message.
+- MojoX::Log needs to be written.
+
+- MojoX::Cache needs to be written.
+
+- MojoX::Session needs to be written.
+
+*** IDEAS
+
+- The ability to add more content handlers and filters besides
+  Mojo::Content::Multipart and Mojo::Filter::Chunked might be interesting.
+  (Would be a good sponsored project i guess)
+
+*** THE USUAL STUFF THAT WILL BE ON THIS LIST FOREVER BECAUSE YOU CAN'T HAVE
+    ENOUGH OF IT :)
+
+- A lot of code needs to be cleaned.
 
 - Tons of RFC spec tests need to be written.
 

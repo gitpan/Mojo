@@ -8,7 +8,6 @@ use warnings;
 use base 'Mojo::Server';
 
 use Carp 'croak';
-use Mojo::Transaction;
 use IO::Select;
 use IO::Socket;
 
@@ -123,9 +122,8 @@ sub _prepare_select {
     for my $name (keys %{$self->{_connections}}) {
         my $connection = $self->{_connections}->{$name};
 
-        # Normal transaction or 100 Continue
-        my $tx = $connection->{continue};
-        $tx    = $connection->{tx} unless $tx;
+        # Transaction
+        my $tx = $connection->{tx};
 
         # Keep alive timeout
         my $timeout = time - $connection->{time};
@@ -176,9 +174,8 @@ sub _prepare_transactions {
             next;
         }
 
-        # Normal transaction or 100 Continue
-        my $tx = $connection->{continue};
-        $tx    = $connection->{tx} unless $tx;
+        # Transaction
+        my $tx = $connection->{tx};
 
         # Just a keep alive, no transaction
         next unless $tx;
@@ -209,9 +206,11 @@ sub _prepare_transactions {
         if ($tx->is_state('write_body') && $tx->{_to_write} <= 0) {
 
             # Continue done
-            if ($connection->{continue}) {
-                delete $connection->{continue};
-                $connection->{continued} = 1;
+            if (defined $tx->continued && $tx->continued == 0) {
+                $tx->continued(1);
+                $tx->state('read');
+                $tx->state('done') unless $tx->res->code == 100;
+                $tx->res->code(0);
                 next;
             }
 
@@ -244,11 +243,14 @@ sub _read {
 
     my $connection = $self->{_connections}->{$name};
     unless ($connection->{tx}) {
-        $connection->{tx} = Mojo::Transaction->new({
-            connection => $socket,
-            state      => 'read'
-        });
+        my $tx = $connection->{tx} ||= $self->build_tx_cb->($self);
+        $tx->connection($socket);
+        $tx->state('read');
         $connection->{requests}++;
+
+        # Last keep alive request?
+        $tx->res->headers->connection('close')
+          if $connection->{requests} >= $self->max_keep_alive_requests;
     }
 
     my $tx  = $connection->{tx};
@@ -267,11 +269,11 @@ sub _read {
     $req->parse($buffer);
 
     # Expect 100 Continue?
-    if ($req->is_state('body') && !$connection->{continued}) {
+    if ($req->content->is_state('body') && !defined $tx->continued) {
         if (($req->headers->expect || '') =~ /100-continue/i) {
-            $connection->{continue}
-              = Mojo::Transaction->new({state => 'write'});
-            $connection->{continue}->res->code(100);
+            $tx->state('write');
+            $tx->continued(0);
+            $self->continue_handler_cb->($self, $tx);
         }
     }
 
@@ -280,16 +282,16 @@ sub _read {
         $tx->state('write');
 
         # Handle
-        $self->handler->($self, $tx);
+        $self->handler_cb->($self, $tx);
     }
 
     $connection->{time} = time;
 }
 
 sub _socket_name {
-    my ($self, $socket) = @_;
-    return undef unless $socket->connected;
-    return $socket->peeraddr . ':' . $socket->peerport;
+    my ($self, $s) = @_;
+    return undef unless $s->connected;
+    return join ':', $s->sockaddr, $s->sockport, $s->peeraddr, $s->peerport;
 }
 
 sub _write {
@@ -301,28 +303,25 @@ sub _write {
     for my $socket (@$sockets) {
         next unless $name = $self->_socket_name($socket);
         my $connection = $self->{_connections}->{$name};
-        $tx  = $connection->{continue};
-        $tx  = $connection->{tx} unless $tx;
+        $tx  = $connection->{tx};
         $res = $tx->res;
 
-        # Wrong state
-        last unless $tx->is_state('write_body');
-
         # Body
-        $chunk = $res->get_body_chunk($tx->{_offset} || 0);
+        $chunk = $res->get_body_chunk($tx->{_offset} || 0)
+          if $tx->is_state('write_body');
+
+        # Headers
+        $chunk = $res->get_header_chunk($tx->{_offset} || 0)
+          if $tx->is_state('write_headers');
+
+        # Start line
+        $chunk = $res->get_start_line_chunk($tx->{_offset} || 0)
+          if $tx->is_state('write_start_line');
 
         # Content generator ready?
         last if defined $chunk;
     }
     return 0 unless $name;
-
-    # Headers
-    $chunk = $res->get_header_chunk($tx->{_offset} || 0)
-      if $tx->is_state('write_headers');
-
-    # Start line
-    $chunk = $res->get_start_line_chunk($tx->{_offset} || 0)
-      if $tx->is_state('write_start_line');
 
     # Write chunk
     return 0 unless $tx->connection->connected;
@@ -341,13 +340,13 @@ __END__
 
 =head1 NAME
 
-Mojo::Server::Daemon - Simple HTTP Server
+Mojo::Server::Daemon - HTTP Server
 
 =head1 SYNOPSIS
 
-    use Mojo::Daemon;
+    use Mojo::Server::Daemon;
 
-    my $daemon = Mojo::Daemon->new;
+    my $daemon = Mojo::Server::Daemon->new;
     $daemon->port(8080);
     $daemon->run;
 

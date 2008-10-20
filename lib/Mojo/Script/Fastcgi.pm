@@ -26,18 +26,18 @@ __END__
 
 =head1 NAME
 
-Mojo::Script::Fastcgi - Fastcgi Script
+Mojo::Script::Fastcgi - FastCGI Script
 
 =head1 SYNOPSIS
 
     use Mojo::Script::Fastcgi;
+
     my $fastcgi = Mojo::Script::Fastcgi->new;
     $fastcgi->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Fastcgi> is a simple script interface to
-L<Mojo::Server::FastCGI>.
+L<Mojo::Script::Fastcgi> is a script interface to L<Mojo::Server::FastCGI>.
 
 =head1 ATTRIBUTES
 

@@ -34,6 +34,7 @@ Mojo::Script::Generate - Generator Script
 =head1 SYNOPSIS
 
     use Mojo::Script::Generate;
+
     my $generator = Mojo::Script::Generate->new;
     $generator->run(@ARGV);
 
@@ -60,5 +61,9 @@ implements the following new ones.
 
     my $namespace = $generator->namespace;
     $generator    = $generator->namespace('Mojo::Script::Generate');
+
+=head1 METHODS
+
+L<Mojo::Script::Generate> inherits all methods from L<Mojo::Scripts>.
 
 =cut

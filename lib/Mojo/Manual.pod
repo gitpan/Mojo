@@ -1,6 +1,6 @@
 # Copyright (C) 2008, Sebastian Riedel.
 
-=head1 The Mojo Manual
+=head1 Mojo Manual
 
 =over 4
 

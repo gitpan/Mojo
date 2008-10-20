@@ -9,7 +9,7 @@ use base 'Mojo::Content';
 use bytes;
 
 use Mojo::ByteStream;
-use Mojo::Cache::File;
+use Mojo::File;
 
 __PACKAGE__->attr('parts', chained => 1, default => sub { [] });
 
@@ -84,6 +84,9 @@ sub build_boundary {
 
 sub get_body_chunk {
     my ($self, $offset) = @_;
+
+    # Body generator
+    return $self->build_body_cb->($self, $offset) if $self->build_body_cb;
 
     # Multipart
     my $boundary = $self->build_boundary;
@@ -203,9 +206,7 @@ sub _parse_multipart_boundary {
     # Begin
     if (index($self->buffer->{buffer}, "\x0d\x0a--$boundary\x0d\x0a") == 0) {
         substr $self->buffer->{buffer}, 0, length($boundary) + 6, '';
-        push @{$self->parts}, Mojo::Content->new(
-            cache => Mojo::Cache::File->new
-        );
+        push @{$self->parts}, Mojo::Content->new(file => Mojo::File->new);
         $self->state('multipart_body');
         return 1;
     }
@@ -237,7 +238,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Content::MultiPart - HTTP MultiPart Content
+Mojo::Content::MultiPart - MultiPart Content
 
 =head1 SYNOPSIS
 
@@ -249,8 +250,7 @@ Mojo::Content::MultiPart - HTTP MultiPart Content
 
 =head1 DESCRIPTION
 
-L<Mojo::Content::MultiPart> is a generic container for HTTP multipart
-content.
+L<Mojo::Content::MultiPart> is a container for HTTP multipart content.
 
 =head1 ATTRIBUTES
 

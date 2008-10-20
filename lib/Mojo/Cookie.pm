@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use Carp;
 use Mojo::Date;
@@ -14,8 +14,6 @@ use Mojo::Date;
 __PACKAGE__->attr([qw/comment domain name path secure value version/],
     chained => 1
 );
-
-sub as_string { croak 'Method "as_string" not implemented by subclass' }
 
 # My Homer is not a communist.
 # He may be a liar, a pig, an idiot, a communist, but he is not a porn star.
@@ -34,6 +32,8 @@ sub max_age {
     }
     return $self->{max_age} ? $self->{max_age}->epoch : 0;
 }
+
+sub to_string { croak 'Method "to_string" not implemented by subclass' }
 
 sub _tokenize {
     my ($self, $string) = @_;
@@ -105,7 +105,7 @@ Mojo::Cookie - Cookie Base Class
 
 =head1 DESCRIPTION
 
-L<Mojo::Cookie> is a generic cookie base class.
+L<Mojo::Cookie> is a cookie base class.
 
 =head1 ATTRIBUTES
 
@@ -159,8 +159,8 @@ L<Mojo::Cookie> is a generic cookie base class.
 L<Mojo::Cookie> inherits all methods from L<Mojo::Base> and implements the
 following new ones.
 
-=head2 C<as_string>
+=head2 C<to_string>
 
-    my $string = $cookie->as_string;
+    my $string = $cookie->to_string;
 
 =cut

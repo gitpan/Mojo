@@ -10,8 +10,7 @@ use base 'Mojo::Message';
 use Mojo::Cookie::Response;
 use Mojo::Date;
 
-__PACKAGE__->attr('code', chained => 1, default => sub { 200 });
-__PACKAGE__->attr('message', chained => 1);
+__PACKAGE__->attr([qw/code message/], chained => 1);
 
 # Umarked codes are from RFC 2616 (mostly taken from LWP)
 my %MESSAGES = (
@@ -69,21 +68,6 @@ my %MESSAGES = (
     510 => 'Not Extended'                     # RFC 2774
 );
 
-sub build_start_line {
-    my $self = shift;
-    my $version = $self->version;
-
-    # HTTP 0.9 has no start line
-    return '' if $version eq '0.9';
-
-    # HTTP 1.0 and above
-    my $code = $self->code;
-    my $message = $self->message || $self->default_message;
-    return $self->buffer
-      ->replace("HTTP/$version $code $message\x0d\x0a")
-      ->as_string;
-}
-
 sub cookies {
     my $self = shift;
 
@@ -111,7 +95,7 @@ sub cookies {
     return undef;
 }
 
-sub default_message { return $MESSAGES{$_[1] || $_[0]->code} }
+sub default_message { return $MESSAGES{$_[1] || $_[0]->code || 200} }
 
 sub fix_headers {
     my $self = shift;
@@ -119,7 +103,7 @@ sub fix_headers {
     $self->SUPER::fix_headers(@_);
 
     # Date header is required in responses
-    $self->headers->date(Mojo::Date->new->as_string)
+    $self->headers->date(Mojo::Date->new->to_string)
       unless $self->headers->date;
 
     return $self;
@@ -136,6 +120,19 @@ sub parse {
 
     # Pass through
     return $self->SUPER::parse();
+}
+
+sub _build_start_line {
+    my $self = shift;
+    my $version = $self->version;
+
+    # HTTP 0.9 has no start line
+    return '' if $version eq '0.9';
+
+    # HTTP 1.0 and above
+    my $code = $self->code || 200;
+    my $message = $self->message || $self->default_message;
+    return "HTTP/$version $code $message\x0d\x0a";
 }
 
 # Weaseling out of things is important to learn.
@@ -192,7 +189,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Message::Response - HTTP Responses
+Mojo::Message::Response - Response
 
 =head1 SYNOPSIS
 
@@ -209,7 +206,7 @@ Mojo::Message::Response - HTTP Responses
 
 =head1 DESCRIPTION
 
-L<Mojo::Message::Response> is a generic container for HTTP responses.
+L<Mojo::Message::Response> is a container for HTTP responses.
 
 =head1 ATTRIBUTES
 
@@ -231,13 +228,9 @@ and implements the following new ones.
 L<Mojo::Message::Response> inherits all methods from L<Mojo::Message> and
 implements the following new ones.
 
-=head2 C<build_start_line>
-
-    my $string = $res->build_start_line;
-
 =head2 C<cookies>
 
-    my @cookies = $res->cookies;
+    my $cookies = $res->cookies;
     $res        = $res->cookies(Mojo::Cookie::Response->new);
 
 =head2 C<default_message>

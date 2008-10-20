@@ -27,10 +27,10 @@ sub run {
     # Search tests
     unless (@tests) {
         my @base = File::Spec->splitdir(File::Spec->abs2rel($FindBin::Bin));
-        # Test directory in the same directory as mojo.pl (t)
+        # Test directory in the same directory as "mojo" (t)
         my $path = File::Spec->catdir(@base, 't');
 
-        # Test dirctory in the directory above mojo.pl (../t)
+        # Test dirctory in the directory above "mojo" (../t)
         $path = File::Spec->catdir(@base, '..', 't') unless -d $path;
         unless (-d $path) {
             print "Can't find test directory.\n";
@@ -73,12 +73,13 @@ Mojo::Script::Test - Test Script
 =head1 SYNOPSIS
 
     use Mojo::Script::Test;
+
     my $test = Mojo::Script::Test->new;
     $test->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Test> is a simple test script.
+L<Mojo::Script::Test> is a test script.
 
 =head1 ATTRIBUTES
 

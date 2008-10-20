@@ -8,7 +8,6 @@ use warnings;
 use base 'Mojo::Server';
 use bytes;
 
-use Mojo::Transaction;
 use IO::Select;
 
 # Roles
@@ -90,7 +89,7 @@ sub read_request {
     my ($self, $connection) = @_;
 
     # Transaction
-    my $tx = Mojo::Transaction->new;
+    my $tx = $self->build_tx_cb->($self);
     $tx->connection($connection);
     my $req = $tx->req;
 
@@ -173,7 +172,7 @@ sub run {
         next unless $tx;
 
         # Handle
-        $self->handler->($self, $tx);
+        $self->handler_cb->($self, $tx);
 
         $self->write_response($tx);
     }
@@ -235,16 +234,38 @@ sub write_response {
 
     # Start line
     my $offset = 0;
-    while ($offset < $res->start_line_length) {
+    while (1) {
         my $chunk = $res->get_start_line_chunk($offset);
+
+        # No start line yet, try again
+        unless (defined $chunk) {
+            sleep 1;
+            next;
+        }
+
+        # End of start line
+        last unless length $chunk;
+
+        # Start line
         $offset += length $chunk;
         $self->write_records($connection, 'STDOUT', $tx->{fcgi_id}, $chunk);
     }
 
     # Headers
     $offset = 0;
-    while ($offset < $res->header_length) {
+    while (1) {
         my $chunk = $res->get_header_chunk($offset);
+
+        # No headers yet, try again
+        unless (defined $chunk) {
+            sleep 1;
+            next;
+        }
+
+        # End of headers
+        last unless length $chunk;
+
+        # Headers
         $offset += length $chunk;
         $self->write_records($connection, 'STDOUT', $tx->{fcgi_id}, $chunk);
     }
@@ -255,7 +276,10 @@ sub write_response {
         my $chunk = $res->get_body_chunk($offset);
 
         # No content yet, try again
-        next unless defined $chunk;
+        unless (defined $chunk) {
+            sleep 1;
+            next;
+        }
 
         # End of content
         last unless length $chunk;

@@ -67,7 +67,7 @@ sub start_daemon_ok {
     return $tb->ok(0, $desc) unless $port;
 
     # Path
-    my $path = $self->home->script_as_string;
+    my $path = $self->home->script_to_string;
     return $tb->ok(0, $desc) unless $path;
 
     # Prepare command
@@ -85,7 +85,7 @@ sub start_daemon_prefork_ok {
     return $tb->ok(0, $desc) unless $port;
 
     # Path
-    my $path = $self->home->script_as_string;
+    my $path = $self->home->script_to_string;
     return $tb->ok(0, $desc) unless $path;
 
     # Prepare command

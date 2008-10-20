@@ -41,12 +41,13 @@ Mojo::Script::Daemon - Daemon Script
 =head1 SYNOPSIS
 
     use Mojo::Script::Daemon;
+
     my $daemon = Mojo::Script::Daemon->new;
     $daemon->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Daemon> is a simple script interface to
+L<Mojo::Script::Daemon> is a script interface to
 L<Mojo::Server::Daemon>.
 
 =head1 ATTRIBUTES

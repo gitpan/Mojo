@@ -9,27 +9,6 @@ use base 'Mojo::Cookie';
 
 use Mojo::ByteStream;
 
-sub as_string {
-    my $self = shift;
-
-    return '' unless $self->name;
-
-    my $name   = $self->name;
-    my $value  = $self->value;
-    my $cookie = "$name=$value";
-
-    if (my $path = $self->path) { $cookie .= "; \$Path=$path" }
-
-    return $cookie;
-}
-
-sub as_string_with_prefix {
-    my $self = shift;
-    my $prefix = $self->prefix;
-    my $cookie = $self->as_string;
-    return "$prefix; $cookie";
-}
-
 # Lisa, would you like a donut?
 # No thanks. Do you have any fruit?
 # This has purple in it. Purple is a fruit.
@@ -64,13 +43,34 @@ sub parse {
         }
     }
 
-    return @cookies;
+    return \@cookies;
 }
 
 sub prefix {
     my $self    = shift;
     my $version = $self->version || 1;
     return "\$Version=$version";
+}
+
+sub to_string {
+    my $self = shift;
+
+    return '' unless $self->name;
+
+    my $name   = $self->name;
+    my $value  = $self->value;
+    my $cookie = "$name=$value";
+
+    if (my $path = $self->path) { $cookie .= "; \$Path=$path" }
+
+    return $cookie;
+}
+
+sub to_string_with_prefix {
+    my $self = shift;
+    my $prefix = $self->prefix;
+    my $cookie = $self->to_string;
+    return "$prefix; $cookie";
 }
 
 1;
@@ -103,14 +103,6 @@ L<Mojo::Cookie::Request> inherits all attributes from L<Mojo::Cookie>.
 L<Mojo::Cookie::Request> inherits all methods from L<Mojo::Cookie> and
 implements the following new ones.
 
-=head2 C<as_string>
-
-    my $string = $cookie->as_string;
-
-=head2 C<as_string_with_prefix>
-
-    my $string = $cookie->as_string_with_prefix;
-
 =head2 C<parse>
 
     my @cookies = $cookie->parse('$Version=1; f=b; $Path=/');
@@ -118,5 +110,13 @@ implements the following new ones.
 =head2 C<prefix>
 
     my $prefix = $cookie->prefix;
+
+=head2 C<to_string>
+
+    my $string = $cookie->to_string;
+
+=head2 C<to_string_with_prefix>
+
+    my $string = $cookie->to_string_with_prefix;
 
 =cut

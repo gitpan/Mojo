@@ -22,7 +22,7 @@ HINT: In case you don't know what you are doing here try the manual!
     perldoc Mojo::Manual::GettingStarted
 
 This is the interactive script interface, the syntax is very simple.
-    mojo.pl <script> <options>
+    mojo <script> <options>
 
 Below you will find a list of available scripts with descriptions.
 
@@ -35,22 +35,26 @@ sub run {
 
     # Run script
     if ($script) {
-        my $mod = $self->namespace . '::'
+        my $module = $self->namespace . '::'
           . Mojo::ByteStream->new($script)->camelize;
-        Mojo::Loader->new->base($self->base)->mods($mod)->inst->run(@args);
+        Mojo::Loader->new
+          ->base($self->base)
+          ->load_build($module)
+          ->run(@args);
         return $self;
     }
 
     # Load scripts
-    my @instances = Mojo::Loader->new($self->namespace)
+    my $instances = Mojo::Loader->new($self->namespace)
       ->base($self->base)
-      ->inst;
+      ->load
+      ->build;
 
     # Print overview
     print $self->message;
 
     # List available scripts
-    foreach my $instance (@instances) {
+    foreach my $instance (@$instances) {
 
         # Generate name
         my $module = ref $instance;
@@ -71,7 +75,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Scripts - Script Interface
+Mojo::Scripts - Scripts
 
 =head1 SYNOPSIS
 

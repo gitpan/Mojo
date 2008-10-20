@@ -9,28 +9,6 @@ use base 'Mojo::Cookie';
 
 use Mojo::ByteStream;
 
-sub as_string {
-    my $self = shift;
-
-    return '' unless $self->name;
-
-    my $name = $self->name;
-    my $value = $self->value;
-    my $cookie .= "$name=$value";
-
-    $cookie .= '; Version=';
-    $cookie .= $self->version || 1;
-
-    if (my $domain = $self->domain)   { $cookie .= "; Domain=$domain"   }
-    if (my $path = $self->path)       { $cookie .= "; Path=$path"       }
-    if (my $max_age = $self->max_age) { $cookie .= "; Max_Age=$max_age" }
-    if (my $expires = $self->expires) { $cookie .= "; expires=$expires" }
-    if (my $secure = $self->secure)   { $cookie .= "; Secure=$secure"   }
-    if (my $comment = $self->comment) { $cookie .= "; Comment=$comment" }
-
-    return $cookie;
-}
-
 # Remember the time he ate my goldfish?
 # And you lied and said I never had goldfish.
 # Then why did I have the bowl Bart? Why did I have the bowl?
@@ -47,7 +25,7 @@ sub parse {
             my $value = $token->[1];
 
             # Value might be quoted
-            $value = Mojo::ByteStream->new($value)->unquote->as_string
+            $value = Mojo::ByteStream->new($value)->unquote->to_string
               if $value;
 
             # Name and value
@@ -60,9 +38,6 @@ sub parse {
 
             # Version
             elsif ($name =~ /^Version$/i) { $cookies[-1]->version($value) }
-
-            # Domain
-            elsif ($name =~ /^Version$/i) { $cookies[-1]->domain($value) }
 
             # Path
             elsif ($name =~ /^Path$/i) { $cookies[-1]->path($value) }
@@ -84,7 +59,29 @@ sub parse {
         }
     }
 
-    return @cookies;
+    return \@cookies;
+}
+
+sub to_string {
+    my $self = shift;
+
+    return '' unless $self->name;
+
+    my $name = $self->name;
+    my $value = $self->value;
+    my $cookie .= "$name=$value";
+
+    $cookie .= '; Version=';
+    $cookie .= $self->version || 1;
+
+    if (my $domain = $self->domain)   { $cookie .= "; Domain=$domain"   }
+    if (my $path = $self->path)       { $cookie .= "; Path=$path"       }
+    if (my $max_age = $self->max_age) { $cookie .= "; Max_Age=$max_age" }
+    if (my $expires = $self->expires) { $cookie .= "; expires=$expires" }
+    if (my $secure = $self->secure)   { $cookie .= "; Secure=$secure"   }
+    if (my $comment = $self->comment) { $cookie .= "; Comment=$comment" }
+
+    return $cookie;
 }
 
 1;
@@ -117,12 +114,12 @@ L<Mojo::Cookie::Response> inherits all attributes from L<Mojo::Cookie>.
 L<Mojo::Cookie::Response> inherits all methods from L<Mojo::Cookie> and
 implements the following new ones.
 
-=head2 C<as_string>
-
-    my $string = $cookie->as_string;
-
 =head2 C<parse>
 
     my @cookies = $cookie->parse('f=b; Version=1; Path=/');
+
+=head2 C<to_string>
+
+    my $string = $cookie->to_string;
 
 =cut

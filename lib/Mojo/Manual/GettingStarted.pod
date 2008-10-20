@@ -12,22 +12,22 @@ insane enough to beta test Mojo. :) ***
 
 Use the application generator to create all neccessary files.
 
-    mojo.pl generate application MyFirstApp
+    mojo generate application MyFirstApp
 
 Thats it, you have just created your very first Mojo application.
 Now it's time to start the built in server.
 
     cd my_first_app
-    perl mojo.pl daemon
+    bin/mojo daemon
 
 You can visit your application at http://127.0.0.1:3000.
 Testing is just as simple.
 
-    perl mojo.pl test
+    bin/mojo test
 
-There are many more helpful scripts, and mojo.pl will list them for you.
+There are many more helpful scripts, and mojo will list them for you.
 
-    perl mojo.pl
+    bin/mojo
 
 Have fun!
 

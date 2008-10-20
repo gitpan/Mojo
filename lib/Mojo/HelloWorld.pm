@@ -16,15 +16,8 @@ sub handler {
 
     # Hello world!
     $tx->res->code(200);
-    $tx->res->headers->content_type('text/html');
-    $tx->res->body(<<'EOF');
-<html>
-    <head></head>
-    <body>
-        Congratulations, your Mojo is working!
-    </body>
-</html>
-EOF
+    $tx->res->headers->content_type('text/plain');
+    $tx->res->body('Congratulations, your Mojo is working!');
 
     return $tx;
 }
@@ -34,7 +27,7 @@ __END__
 
 =head1 NAME
 
-Mojo::HelloWorld - Default Application
+Mojo::HelloWorld - Hello World!
 
 =head1 SYNOPSIS
 
@@ -46,7 +39,8 @@ Mojo::HelloWorld - Default Application
 
 =head1 DESCRIPTION
 
-L<Mojo::HelloWorld> is the default L<Mojo> application.
+L<Mojo::HelloWorld> is the default L<Mojo> application, used mostly for
+testing.
 
 =head1 METHODS
 

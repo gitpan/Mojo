@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use Mojo::ByteStream;
 use Mojo::Parameters;
@@ -22,87 +22,18 @@ __PACKAGE__->attr('query',
     default => sub { Mojo::Parameters->new }
 );
 
+*to_abs = \&to_absolute;
+*to_rel = \&to_relative;
+
+# RFC 3986
+our $UNRESERVED = 'A-Za-z0-9\-\.\_\~';
+our $SUBDELIM   = '!\$\&\'\(\)\*\+\,\;\=';
+our $PCHAR      = "$UNRESERVED$SUBDELIM\:\@";
+
 sub new {
     my $self = shift->SUPER::new();
     $self->parse(@_);
     return $self;
-}
-
-sub as_absolute {
-    my $self = shift;
-    my $base = shift || $self->base->clone;
-
-    my $abs = $self->clone;
-
-    # Add scheme and authority
-    $abs->scheme($base->scheme);
-    $abs->authority($base->authority);
-
-    $abs->base($base->clone);
-    my $path = $base->path->clone;
-
-    # Characters after the right-most '/' need to go
-    pop @{$path->parts} unless $path->trailing_slash;
-
-    $path->append($_) for @{$abs->path->parts};
-    $path->leading_slash(1);
-    $path->trailing_slash($abs->path->trailing_slash);
-    $abs->path($path);
-    
-    return $abs;
-}
-
-sub as_relative {
-    my $self = shift;
-    my $base = shift || $self->base->clone;
-
-    my $rel = $self->clone;
-
-    # Different locations
-    return $rel
-      unless lc $base->scheme eq lc $rel->scheme
-      && $base->authority eq $rel->authority;
-
-    # Remove scheme and authority
-    $rel->scheme('');
-    $rel->authority('');
-
-    $rel->base($base->clone);
-    my $splice = @{$base->path->parts};
-
-   # Characters after the right-most '/' need to go
-    $splice -= 1 unless $base->path->trailing_slash;
-
-    my $path = $rel->path->clone;
-    splice @{$path->parts}, 0, $splice if $splice;
-
-    $rel->path($path);
-    $rel->path->leading_slash(0) if $splice;
-    
-    return $rel;
-}
-
-# Dad, what's a Muppet?
-# Well, it's not quite a mop, not quite a puppet, but man... *laughs*
-# So, to answer you question, I don't know.
-sub as_string {
-    my $self = shift;
-
-    my $scheme    = Mojo::ByteStream->new($self->scheme)->url_escape;
-    my $authority = $self->authority;
-    my $path      = $self->path;
-    my $query     = $self->query;
-    my $fragment  = Mojo::ByteStream->new($self->fragment)->url_escape;
-
-    # Format
-    my $url = '';
-
-    $url .= lc "$scheme://" if $scheme && $authority;
-    $url .= "$authority$path";
-    $url .= "?$query" if @{$query->params};
-    $url .= "#$fragment" if $fragment->stream_length;
-
-    return $url;
 }
 
 sub authority {
@@ -127,16 +58,17 @@ sub authority {
         }
 
         $self->userinfo($userinfo);
-        $self->host(Mojo::ByteStream->new($host)->url_unescape->as_string);
-        $self->port(Mojo::ByteStream->new($port)->url_unescape->as_string);
+        $self->host(Mojo::ByteStream->new($host)->url_unescape->to_string);
+        $self->port(Mojo::ByteStream->new($port)->url_unescape->to_string);
 
         return $self;
     }
 
-    # Get
-    my $userinfo = $self->userinfo;
-    my $host     = Mojo::ByteStream->new($self->host)->url_escape;
+    # *( unreserved / pct-encoded / sub-delims )
+    my $host = Mojo::ByteStream->new($self->host)
+      ->url_escape("$UNRESERVED$SUBDELIM");
     my $port     = $self->port;
+    my $userinfo = $self->userinfo;
 
     # Format
     $authority .= "$userinfo\@" if $userinfo;
@@ -176,15 +108,95 @@ sub parse {
       = $url
       =~ m|(?:([^:/?#]+):)?(?://([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?|;
 
-    $self->scheme(Mojo::ByteStream->new($scheme)->url_unescape->as_string);
+    $self->scheme(Mojo::ByteStream->new($scheme)->url_unescape->to_string);
     $self->authority($authority);
     $self->path->parse($path);
     $self->query->parse($query);
     $self->fragment(
-        Mojo::ByteStream->new($fragment)->url_unescape->as_string
+        Mojo::ByteStream->new($fragment)->url_unescape->to_string
     );
 
     return $self;
+}
+
+sub to_absolute {
+    my $self = shift;
+    my $base = shift || $self->base->clone;
+
+    my $abs = $self->clone;
+
+    # Add scheme and authority
+    $abs->scheme($base->scheme);
+    $abs->authority($base->authority);
+
+    $abs->base($base->clone);
+    my $path = $base->path->clone;
+
+    # Characters after the right-most '/' need to go
+    pop @{$path->parts} unless $path->trailing_slash;
+
+    $path->append($_) for @{$abs->path->parts};
+    $path->leading_slash(1);
+    $path->trailing_slash($abs->path->trailing_slash);
+    $abs->path($path);
+    
+    return $abs;
+}
+
+sub to_relative {
+    my $self = shift;
+    my $base = shift || $self->base->clone;
+
+    my $rel = $self->clone;
+
+    # Different locations
+    return $rel
+      unless lc $base->scheme eq lc $rel->scheme
+      && $base->authority eq $rel->authority;
+
+    # Remove scheme and authority
+    $rel->scheme('');
+    $rel->authority('');
+
+    $rel->base($base->clone);
+    my $splice = @{$base->path->parts};
+
+   # Characters after the right-most '/' need to go
+    $splice -= 1 unless $base->path->trailing_slash;
+
+    my $path = $rel->path->clone;
+    splice @{$path->parts}, 0, $splice if $splice;
+
+    $rel->path($path);
+    $rel->path->leading_slash(0) if $splice;
+    
+    return $rel;
+}
+
+# Dad, what's a Muppet?
+# Well, it's not quite a mop, not quite a puppet, but man... *laughs*
+# So, to answer you question, I don't know.
+sub to_string {
+    my $self = shift;
+
+    my $scheme    = $self->scheme;
+    my $authority = $self->authority;
+    my $path      = $self->path;
+    my $query     = $self->query;
+
+    # *( pchar / "/" / "?" )
+    my $fragment  = Mojo::ByteStream->new($self->fragment)
+      ->url_escape("$PCHAR\/\?");
+
+    # Format
+    my $url = '';
+
+    $url .= lc "$scheme://" if $scheme && $authority;
+    $url .= "$authority$path";
+    $url .= "?$query" if @{$query->params};
+    $url .= "#$fragment" if $fragment->stream_length;
+
+    return $url;
 }
 
 sub userinfo {
@@ -200,17 +212,19 @@ sub userinfo {
             $password = $2;
         }
 
-        $self->user(Mojo::ByteStream->new($user)->url_unescape->as_string);
+        $self->user(Mojo::ByteStream->new($user)->url_unescape->to_string);
         $self->password(
-            Mojo::ByteStream->new($password)->url_unescape->as_string
+            Mojo::ByteStream->new($password)->url_unescape->to_string
         );
 
         return $self;
     }
 
-    # Get
-    my $user     = Mojo::ByteStream->new($self->user)->url_escape;
-    my $password = Mojo::ByteStream->new($self->password)->url_escape;
+    # *( unreserved / pct-encoded / sub-delims / ":" )
+    my $user = Mojo::ByteStream->new($self->user)
+      ->url_escape("$UNRESERVED$SUBDELIM\:");
+    my $password = Mojo::ByteStream->new($self->password)
+      ->url_escape("$UNRESERVED$SUBDELIM\:");
 
     # Format
     return $user ? "$user:$password" : undef;
@@ -221,7 +235,7 @@ __END__
 
 =head1 NAME
 
-Mojo::URL - Uniform Resource Locators
+Mojo::URL - Uniform Resource Locator
 
 =head1 SYNOPSIS
 
@@ -323,19 +337,9 @@ following new ones.
     my $url = Mojo::URL->new;
     my $url = Mojo::URL->new('http://127.0.0.1:3000/foo?f=b&baz=2#foo');
 
-=head2 C<as_absolute>
+=head2 C<clone>
 
-    my $abs = $url->as_absolute;
-    my $abs = $url->as_absolute(Mojo::URL->new('http://kraih.com/foo'));
-
-=head2 C<as_relative>
-
-    my $rel = $url->as_relative;
-    my $rel = $url->as_relative(Mojo::URL->new('http://kraih.com/foo'));
-
-=head2 C<as_string>
-
-    my $string = $url->as_string;
+    my $url2 = $url->clone;
 
 =head2 C<is_absolute>
 
@@ -344,5 +348,23 @@ following new ones.
 =head2 C<parse>
 
     $url = $url->parse('http://127.0.0.1:3000/foo/bar?fo=o&baz=23#foo');
+
+=head2 C<to_abs>
+
+=head2 C<to_absolute>
+
+    my $abs = $url->to_absolute;
+    my $abs = $url->to_absolute(Mojo::URL->new('http://kraih.com/foo'));
+
+=head2 C<to_rel>
+
+=head2 C<to_relative>
+
+    my $rel = $url->to_relative;
+    my $rel = $url->to_relative(Mojo::URL->new('http://kraih.com/foo'));
+
+=head2 C<to_string>
+
+    my $string = $url->to_string;
 
 =cut

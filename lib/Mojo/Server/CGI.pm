@@ -7,7 +7,6 @@ use warnings;
 
 use base 'Mojo::Server';
 
-use Mojo::Transaction;
 use IO::Select;
 
 __PACKAGE__->attr('non_parsed_header', chained => 1, default => sub { 0 });
@@ -17,7 +16,7 @@ __PACKAGE__->attr('non_parsed_header', chained => 1, default => sub { 0 });
 sub run {
     my $self = shift;
 
-    my $tx  = Mojo::Transaction->new;
+    my $tx  = $self->build_tx_cb->($self);
     my $req = $tx->req;
 
     # Environment
@@ -33,15 +32,26 @@ sub run {
     }
 
     # Handle
-    $self->handler->($self, $tx);
+    $self->handler_cb->($self, $tx);
 
     my $res = $tx->res;
 
     # Response start line
     my $offset = 0;
     if ($self->non_parsed_header) {
-        while ($offset < $res->start_line_length) {
+        while (1) {
             my $chunk = $res->get_start_line_chunk($offset);
+
+            # No start line yet, try again
+            unless (defined $chunk) {
+                sleep 1;
+                next;
+            }
+
+            # End of start line
+            last unless length $chunk;
+
+            # Start line
             my $written = STDOUT->syswrite($chunk);
             $offset += $written;
         }
@@ -53,8 +63,20 @@ sub run {
     $res->headers->header('Status', "$code $message")
       unless $self->non_parsed_header;
     $offset = 0;
-    while ($offset < $res->header_length) {
-        my $written = STDOUT->syswrite($res->get_header_chunk($offset));
+    while (1) {
+        my $chunk = $res->get_header_chunk($offset);
+
+        # No headers yet, try again
+        unless (defined $chunk) {
+            sleep 1;
+            next;
+        }
+
+        # End of headers
+        last unless length $chunk;
+
+        # Headers
+        my $written = STDOUT->syswrite($chunk);
         $offset += $written;
     }
 

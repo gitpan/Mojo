@@ -11,7 +11,10 @@ use File::Spec;
 use FindBin;
 
 __PACKAGE__->attr('parts',  chained => 1, default => sub { [] });
-__PACKAGE__->attr('script', chained => 1, default => sub { 'mojo.pl' });
+__PACKAGE__->attr('script',
+    chained => 1,
+    default => sub { $ENV{MOJO_SCRIPT} || 'mojo' }
+);
 
 # I'm normally not a praying man, but if you're up there,
 # please save me Superman.
@@ -28,11 +31,6 @@ sub new {
     }
 
     return $self;
-}
-
-sub as_string {
-    my $self = shift;
-    return File::Spec->catdir(@{$self->parts}, @_);
 }
 
 sub detect {
@@ -61,7 +59,9 @@ sub detect {
             my $script = $self->script;
             return $self->parts(@home)
               if -f File::Spec->catfile(@home, $script)
-              || -f File::Spec->catfile(@home, 'script', $script);
+              || -f File::Spec->catfile(@home, "$script.pl")
+              || -f File::Spec->catfile(@home, 'script', $script)
+              || -f File::Spec->catfile(@home, 'script', "$script.pl");
         }
     }
 
@@ -72,14 +72,22 @@ sub detect {
     my $pop;
     for my $i (1 .. 5) {
 
-        # "mojo.pl" in root directory
+        # "mojo" in root directory
         $pop = 1;
         $path = File::Spec->catfile(@base, '..' x $i, $script);
         last if -f $path;
 
-        # "mojo.pl" in script directory
+        # "mojo.pl" in root directory
+        $path = File::Spec->catfile(@base, '..' x $i, "$script.pl");
+        last if -f $path;
+
+        # "mojo" in bin directory
         $pop = 2;
-        $path = catfile(@base, '..' x $i, 'script', $script);
+        $path = File::Spec->catfile(@base, '..' x $i, 'bin', $script);
+        last if -f $path;
+
+        # "mojo.pl" in bin directory
+        $path = File::Spec->catfile(@base, '..' x $i, 'bin', "$script.pl");
         last if -f $path;
     }
 
@@ -94,12 +102,12 @@ sub detect {
     return $self;
 }
 
-sub file_as_string {
+sub file_to_string {
     my $self = shift;
     return File::Spec->catfile(@{$self->parts}, @_);
 }
 
-sub lib_as_string {
+sub lib_to_string {
     my $self = shift;
 
     # Directory found
@@ -117,19 +125,34 @@ sub parse {
     return $self;
 }
 
-sub script_as_string {
+sub script_to_string {
     my $self = shift;
 
-    # "mojo.pl" in root directory
+    # "mojo" in root directory
     my $path = File::Spec->catfile(@{$self->parts}, $self->script);
     return $path if -f $path;
 
-    # "mojo.pl" in script directory
-    $path = File::Spec->catfile(@{$self->parts}, 'script', $self->script);
+    # "mojo.pl" in root directory
+    $path = File::Spec->catfile(@{$self->parts}, $self->script . '.pl');
+    return $path if -f $path;
+
+    # "mojo" in bin directory
+    $path = File::Spec->catfile(@{$self->parts}, 'bin', $self->script);
+    return $path if -f $path;
+
+    # "mojo.pl" in bin directory
+    $path = File::Spec->catfile(
+        @{$self->parts}, 'bin', $self->script . '.pl'
+    );
     return $path if -f $path;
 
     # No script
     return undef;
+}
+
+sub to_string {
+    my $self = shift;
+    return File::Spec->catdir(@{$self->parts}, @_);
 }
 
 1;
@@ -137,7 +160,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Home - Home Sweet Home
+Mojo::Home - Home Sweet Home!
 
 =head1 SYNOPSIS
 
@@ -169,31 +192,31 @@ following new ones.
     my $home = Mojo::Home->new;
     my $home = Mojo::Home->new('/foo/bar/baz');
 
-=head2 C<as_string>
-
-    my $string = $home->as_string;
-    my $string = $home->as_string(qw/foo bar/);
-    my $string = "$home";
-
 =head2 C<detect>
 
     $home = $home->detect;
     $home = $home->detect('My::App');
 
-=head2 C<file_as_string>
+=head2 C<file_to_string>
 
-    my $string = $home->file_as_string(qw/foo bar.html/);
+    my $string = $home->file_to_string(qw/foo bar.html/);
 
-=head2 C<lib_as_string>
+=head2 C<lib_to_string>
 
-    my $string = $home->lib_as_string;
+    my $string = $home->lib_to_string;
 
 =head2 C<parse>
 
     $home = $home->parse('/foo/bar');
 
-=head2 C<script_as_string>
+=head2 C<script_to_string>
 
-    my $string = $home->script_as_string;
+    my $string = $home->script_to_string;
+
+=head2 C<to_string>
+
+    my $string = $home->to_string;
+    my $string = $home->to_string(qw/foo bar/);
+    my $string = "$home";
 
 =cut

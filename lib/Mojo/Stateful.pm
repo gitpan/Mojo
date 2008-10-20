@@ -31,7 +31,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Stateful - State Keeping Base Class
+Mojo::Stateful - Stateful Base Class
 
 =head1 SYNOPSIS
 
@@ -39,7 +39,7 @@ Mojo::Stateful - State Keeping Base Class
 
 =head1 DESCRIPTION
 
-L<Mojo::Stateful> is a generic base class for state keeping instances.
+L<Mojo::Stateful> is a base class for state keeping instances.
 
 =head1 ATTRIBUTES
 

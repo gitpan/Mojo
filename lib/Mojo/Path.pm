@@ -6,9 +6,10 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use Mojo::ByteStream;
+use Mojo::URL;
 
 __PACKAGE__->attr([qw/leading_slash trailing_slash/],
     chained => 1,
@@ -28,62 +29,7 @@ sub append {
     return $self;
 }
 
-# Homer, the plant called.
-# They said if you don't show up tomorrow don't bother showing up on Monday.
-# Woo-hoo. Four-day weekend.
-sub as_string {
-    my $self = shift;
-
-    # Escape
-    my @path;
-    for my $part (@{$self->parts}) {
-        push @path, Mojo::ByteStream->new($part)->url_escape->as_string;
-    }
-
-    # Format
-    my $path = join '/', @path;
-    $path = "/$path" if $self->leading_slash;
-    $path = "$path/" if @path && $self->trailing_slash;
-
-    return $path;
-}
-
-sub clone {
-    my $self  = shift;
-    my $clone = Mojo::Path->new;
-
-    $clone->parts([@{$self->parts}]);
-    $clone->leading_slash($self->leading_slash);
-    $clone->trailing_slash($self->trailing_slash);
-
-    return $clone;
-}
-
-sub parse {
-    my ($self, $path) = @_;
-    $path ||= '';
-
-    # Meta
-    $self->leading_slash(1)  if $path =~ /^\//;
-    $self->trailing_slash(1) if $path =~ /\/$/;
-
-    # Parse
-    my @parts;
-    for my $part (split '/', $path) {
-
-        # Garbage
-        next unless $part;
-
-        # Unescape
-        push @parts, Mojo::ByteStream->new($part)->url_unescape->as_string;
-    }
-
-    $self->parts(\@parts);
-
-    return $self;
-}
-
-sub resolve {
+sub canonicalize {
     my $self = shift;
 
     # Resolve path
@@ -112,12 +58,71 @@ sub resolve {
     return $self;
 }
 
+# Homer, the plant called.
+# They said if you don't show up tomorrow don't bother showing up on Monday.
+# Woo-hoo. Four-day weekend.
+sub clone {
+    my $self  = shift;
+    my $clone = Mojo::Path->new;
+
+    $clone->parts([@{$self->parts}]);
+    $clone->leading_slash($self->leading_slash);
+    $clone->trailing_slash($self->trailing_slash);
+
+    return $clone;
+}
+
+sub parse {
+    my ($self, $path) = @_;
+    $path ||= '';
+
+    # Meta
+    $self->leading_slash(1)  if $path =~ /^\//;
+    $self->trailing_slash(1) if $path =~ /\/$/;
+
+    # Parse
+    my @parts;
+    for my $part (split '/', $path) {
+
+        # Garbage
+        next unless $part;
+
+        # Unescape
+        push @parts, Mojo::ByteStream->new($part)->url_unescape->to_string;
+    }
+
+    $self->parts(\@parts);
+
+    return $self;
+}
+
+sub to_string {
+    my $self = shift;
+
+    # Escape
+    my @path;
+    for my $part (@{$self->parts}) {
+
+        # *( pchar / "/" / "?" )
+        push @path, Mojo::ByteStream->new($part)
+          ->url_escape($Mojo::URL::PCHAR)
+          ->to_string;
+    }
+
+    # Format
+    my $path = join '/', @path;
+    $path = "/$path" if $self->leading_slash;
+    $path = "$path/" if @path && $self->trailing_slash;
+
+    return $path;
+}
+
 1;
 __END__
 
 =head1 NAME
 
-Mojo::Path - URL Path
+Mojo::Path - Path
 
 =head1 SYNOPSIS
 
@@ -128,7 +133,7 @@ Mojo::Path - URL Path
 
 =head1 DESCRIPTION
 
-L<Mojo::Path> is a generic container for URL paths.
+L<Mojo::Path> is a container for URL paths.
 
 =head1 ATTRIBUTES
 
@@ -161,9 +166,9 @@ following new ones.
 
     $path = $path->append(qw/foo bar/);
 
-=head2 C<as_string>
+=head2 C<canonicalize>
 
-    my $string = $path->as_string;
+    $path = $path->canonicalize;
 
 =head2 C<clone>
 
@@ -173,8 +178,8 @@ following new ones.
 
     $path = $path->parse('/foo/bar%3B/baz.html');
 
-=head2 C<resolve>
+=head2 C<to_string>
 
-    $path = $path->resolve;
+    my $string = $path->to_string;
 
 =cut

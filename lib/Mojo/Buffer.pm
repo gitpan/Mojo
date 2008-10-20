@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 use bytes;
 
 __PACKAGE__->attr('raw_length', chained => 1, default => sub { 0 });
@@ -24,8 +24,6 @@ sub add_chunk {
     $self->{buffer} .= $chunk;
     return $self;
 }
-
-sub as_string { return shift->{buffer} || '' }
 
 sub buffer_length {
     my $self = shift;
@@ -68,6 +66,8 @@ sub replace {
     return $self;
 }
 
+sub to_string { return shift->{buffer} || '' }
+
 1;
 __END__
 
@@ -86,7 +86,7 @@ Mojo::Buffer - Buffer
 
 =head1 DESCRIPTION
 
-L<Mojo::Buffer> is a generic in-memory buffer.
+L<Mojo::Buffer> is a simple in-memory buffer.
 
 =head1 ATTRIBUTES
 
@@ -112,10 +112,6 @@ the following new ones.
 
     $buffer = $buffer->add_chunk('foo');
 
-=head2 C<as_string>
-
-    my $string = $buffer->as_string;
-
 =head2 C<empty>
 
     my $string = $buffer->empty;
@@ -131,5 +127,9 @@ the following new ones.
 =head2 C<replace>
 
     $buffer = $buffer->replace('foobarbaz');
+
+=head2 C<to_string>
+
+    my $string = $buffer->to_string;
 
 =cut

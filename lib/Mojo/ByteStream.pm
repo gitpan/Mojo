@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 use bytes;
 
 # These are core modules since 5.8, no need for pure-Perl implementations
@@ -37,8 +37,6 @@ sub new {
     $self->{bytestream} = $_[0] if $_[0];
     return $self;
 }
-
-sub as_string { return shift->{bytestream} }
 
 sub b64_decode {
     my $self = shift;
@@ -172,6 +170,8 @@ sub stream_length {
     return length $self->{bytestream};
 }
 
+sub to_string { return shift->{bytestream} }
+
 sub unquote {
     my $self = shift;
 
@@ -194,9 +194,12 @@ sub url_escape {
     # Shortcut
     return $self unless defined $self->{bytestream};
 
+    # Default to unreserved characters
+    my $pattern = shift || 'A-Za-z0-9\-\.\_\~';
+
     # Escape
 	$self->{bytestream}
-	  =~ s/([^A-Za-z0-9\-\.\_\~])/sprintf('%%%02X',ord($1))/ge;
+	  =~ s/([^$pattern])/sprintf('%%%02X',ord($1))/ge;
 
     return $self;
 }
@@ -232,7 +235,7 @@ sub _sanitize {
     my $char = hex $hex;
     return chr $char if $UNRESERVED{$char};
 
-    return uc $hex;
+    return '%' . uc $hex;
 }
 
 1;
@@ -240,7 +243,7 @@ __END__
 
 =head1 NAME
 
-Mojo::ByteStream - Text And Bytestream Manipulation
+Mojo::ByteStream - ByteStream
 
 =head1 SYNOPSIS
 
@@ -266,7 +269,7 @@ Mojo::ByteStream - Text And Bytestream Manipulation
     my $stream_length = $stream->stream_length;
 
     my $stream2 = $stream->clone;
-    print $stream2->as_string;
+    print $stream2->to_string;
 
     # Chained
     my $stream = Mojo::ByteStream->new('foo bar baz')->quote;
@@ -292,10 +295,6 @@ the following new ones.
 =head2 C<new>
 
     my $stream = Mojo::ByteStream->new($string);
-
-=head2 C<as_string>
-
-    my $string = $stream->as_string;
 
 =head2 C<b64_decode>
 
@@ -341,6 +340,10 @@ the following new ones.
 
     $stream = $stream->quote;
 
+=head2 C<to_string>
+
+    my $string = $stream->to_string;
+
 =head2 C<unquote>
 
     $stream = $stream->unquote;
@@ -348,6 +351,7 @@ the following new ones.
 =head2 C<url_escape>
 
     $stream = $stream->url_escape;
+    $stream = $stream->url_escape('A-Za-z0-9\-\.\_\~');
 
 =head2 C<url_sanitize>
 

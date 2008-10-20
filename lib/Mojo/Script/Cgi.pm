@@ -31,12 +31,13 @@ Mojo::Script::Cgi - CGI Script
 =head1 SYNOPSIS
 
     use Mojo::Script::CGI;
+
     my $cgi = Mojo::Script::CGI->new;
     $cgi->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Cgi> is a simple script interface to L<Mojo::Server::CGI>.
+L<Mojo::Script::Cgi> is a script interface to L<Mojo::Server::CGI>.
 
 =head1 ATTRIBUTES
 

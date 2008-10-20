@@ -40,7 +40,8 @@ sub new {
     return $self;
 }
 
-# Here's to alcohol, the cause of—and solution to—all life's problems.
+# Performance is very important for something as often used as accessors,
+# so we optimize them by compiling our own code
 sub attr {
     my $class = shift;
     my $attrs = shift;
@@ -58,7 +59,7 @@ sub attr {
     $options ||= {};
 
     Carp::croak('Option "filter" has to be a coderef')
-      if ($options->{filter} && !ref $options->{filter} eq 'CODE');
+      if ($options->{filter} && ref $options->{filter} ne 'CODE');
 
     my $chained = delete $options->{chained};
     my $default = delete $options->{default};
@@ -75,28 +76,27 @@ sub attr {
     my $ws = '    ';
     for my $attr (@$attrs) {
 
+        Carp::croak("Attribute '$attr' invalid") unless $attr =~ /^\w+$/;
+
         # Header
         my $code = "sub {\n";
         $code .= "${ws}my \$self = shift;\n";
-        $code .= "${ws}Carp::croak(\'";
-        $code .= 'Attribute has to be called with an object not a class';
-        $code .= "')\n  ${ws}unless ref \$self;\n";
 
         # No arguments
         $code .= "${ws}if (\@_ == 0) {\n";
         unless ($default) {
 
             # Return value
-            $code .= "$ws${ws}return \$self->{\$attr};\n";
+            $code .= "$ws${ws}return \$self->{'$attr'};\n";
         }
         else {
 
             # Return value
-            $code .= "$ws${ws}return \$self->{\$attr} ";
-            $code .= "if defined \$self->{\$attr};\n";
+            $code .= "$ws${ws}return \$self->{'$attr'} ";
+            $code .= "if defined \$self->{'$attr'};\n";
 
             # Return default value
-            $code .= "$ws${ws}return \$self->{\$attr} = ";
+            $code .= "$ws${ws}return \$self->{'$attr'} = ";
             $code .= ref $default eq 'CODE'
               ? '$default->($self)'
               : '$default';
@@ -110,12 +110,12 @@ sub attr {
 
             # Filter and store argument
             $code .= "$ws${ws}local \$_ = \$_[0];\n";
-            $code .= "$ws$ws\$self->{\$attr} = \$filter->(\$self, \$_);\n";
+            $code .= "$ws$ws\$self->{'$attr'} = \$filter->(\$self, \$_);\n";
         }
         else {
 
             # Store argument
-            $code .= "$ws$ws\$self->{\$attr} = \$_[0];\n";
+            $code .= "$ws$ws\$self->{'$attr'} = \$_[0];\n";
         }
         $code .= "$ws}\n";
 
@@ -125,21 +125,21 @@ sub attr {
 
             # Filter and store arguments
             $code .= "$ws${ws}local \$_ = \\\@_;\n";
-            $code .= "$ws$ws\$self->{\$attr} = \$filter->(\$self, \$_);\n";
+            $code .= "$ws$ws\$self->{'$attr'} = \$filter->(\$self, \$_);\n";
         }
         else {
 
             # Store arguments
-            $code .= "$ws$ws\$self->{\$attr} = \\\@_;\n";
+            $code .= "$ws$ws\$self->{'$attr'} = \\\@_;\n";
         }
         $code .= "$ws}\n";
 
         # Weaken
-        $code .= "${ws}Scalar::Util::weaken(\$self->{\$attr});\n" if $weak;
+        $code .= "${ws}Scalar::Util::weaken(\$self->{'$attr'});\n" if $weak;
 
         # Return value or instance for chained
         $code .= "${ws}return ";
-        $code .= $chained ? '$self' : '$self->{$attr}';
+        $code .= $chained ? '$self' : "\$self->{'$attr'}";
         $code .= ";\n";
 
         # Footer
@@ -164,7 +164,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Base - Once Upon A Midnight Dreary
+Mojo::Base - Once Upon A Midnight Dreary!
 
 =head1 SYNOPSIS
 

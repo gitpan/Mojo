@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 use base 'Mojo::Stateful';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use Mojo::Buffer;
 
@@ -15,7 +15,7 @@ __PACKAGE__->attr('buffer',
     default => sub { Mojo::Buffer->new }
 );
 
-*as_string = \&build;
+*to_string = \&build;
 
 my @GENERAL_HEADERS = qw/
     Cache-Control
@@ -122,6 +122,7 @@ sub build {
 }
 
 sub connection { return shift->header('Connection', @_) }
+sub content_disposition { return shift->header('Content-Disposition', @_) }
 sub content_length { return shift->header('Content-Length', @_) }
 sub content_type { return shift->header('Content-Type', @_) }
 sub cookie { return shift->header('Cookie', @_) }
@@ -265,7 +266,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Headers - HTTP Headers
+Mojo::Headers - Headers
 
 =head1 SYNOPSIS
 
@@ -278,7 +279,7 @@ Mojo::Headers - HTTP Headers
 
 =head1 DESCRIPTION
 
-L<Mojo::Headers> is a generic container for HTTP headers.
+L<Mojo::Headers> is a container and parser for HTTP headers.
 
 =head1 ATTRIBUTES
 
@@ -289,6 +290,11 @@ implements the following new ones.
 
     my $connection = $headers->connection;
     $headers       = $headers->connection('close');
+
+=head2 C<content_disposition>
+
+    my $content_disposition = $headers->content_disposition;
+    $headers                = $headers->content_disposition('foo');
 
 =head2 C<content_length>
 
@@ -359,10 +365,12 @@ the following new ones.
 
     $headers = $headers->add_line('Content-Type', 'text/plain');
 
+=head2 C<to_string>
+
 =head2 C<build>
 
     my $string = $headers->build;
-    my $string = $headers->as_string;
+    my $string = $headers->to_string;
     my $string = "$headers";
 
 =head2 C<header>

@@ -40,12 +40,13 @@ Mojo::Script::DaemonPrefork - Prefork Daemon Script
 =head1 SYNOPSIS
 
     use Mojo::Script::Daemon::Prefork;
+
     my $daemon = Mojo::Script::Daemon::Prefork->new;
     $daemon->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Daemon::Prefork> is a simple script interface to
+L<Mojo::Script::Daemon::Prefork> is a script interface to
 L<Mojo::Server::Daemon::Prefork>.
 
 =head1 ATTRIBUTES

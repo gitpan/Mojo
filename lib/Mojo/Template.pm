@@ -339,7 +339,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Template - Perlish Templates
+Mojo::Template - Perlish Templates!
 
 =head1 SYNOPSIS
 
@@ -518,19 +518,23 @@ following new ones.
     my $result = $mt->render($template);
     my $result = $mt->render($template, @arguments);
 
-=head2 C<renter_file>
+=head2 C<render_file>
 
-    my $result = $mt->render($template_file);
-    my $result = $mt->render($template_file, @arguments);
+    my $result = $mt->render_file($template_file);
+    my $result = $mt->render_file($template_file, @arguments);
 
-=head2 C<renter_file_to_file>
+=head2 C<render_file_to_file>
 
-    my $result = $mt->render($template_file, $result_file);
-    my $result = $mt->render($template_file, $result_file, @arguments);
+    my $result = $mt->render_file_to_file($template_file, $result_file);
+    my $result = $mt->render_file_to_file(
+        $template_file, $result_file, @arguments
+    );
 
-=head2 C<renter_to_file>
+=head2 C<render_to_file>
 
-    my $result = $mt->render($template, $result_file);
-    my $result = $mt->render($template, $result_file, @arguments);
+    my $result = $mt->render_to_file($template, $result_file);
+    my $result = $mt->render_to_file(
+        $template, $result_file, @arguments
+    );
 
 =cut

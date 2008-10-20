@@ -14,11 +14,9 @@ use File::Spec;
 use constant DEBUG => $ENV{MOJO_LOADER_DEBUG} || 0;
 
 __PACKAGE__->attr([qw/base namespace/], chained => 1);
+__PACKAGE__->attr('modules', chained => 1, default => sub { [] });
 
 my $STATS = {};
-
-*inst = \&instantiate;
-*mods = \&modules;
 
 BEGIN {
 
@@ -30,18 +28,6 @@ BEGIN {
     eval 'sub DB::sub' if $] < 5.008007;
 }
 
-sub modules {
-    my ($self, @modules) = @_;
-
-    $self ->{modules} ||= [];
-    $self->{modules} = \@modules if $modules[0];
-
-    # Chained
-    return $self if @modules;
-
-    return @{$self->{modules}};
-}
-
 # Homer no function beer well without.
 sub new {
     my ($class, $namespace) = @_;
@@ -51,43 +37,57 @@ sub new {
     return $self;
 }
 
-sub instantiate {
+sub build {
     my $self = shift;
-
-    # Load
-    $self->load;
 
     # Load and instantiate
     my @instances;
-    foreach my $module ($self->modules) {
+    foreach my $module (@{$self->modules}) {
+
         eval {
             if (my $base = $self->base) {
-                die unless $module->isa($base);
+                die "SHORTCUT\n" unless $module->isa($base);
             }
             my $instance = $module->new(@_);
             push @instances, $instance;
         };
+        croak qq/Couldn't instantiate module "$module": $@/
+          if $@ && $@ ne "SHORTCUT\n";
     }
 
-    return @instances > 1 ? @instances : $instances[0];
+    return \@instances;
 }
 
 sub load {
     my ($self, @modules) = @_;
 
-    $self->modules(@modules) if $modules[0];
+    $self->modules(\@modules) if @modules;
 
-    for my $module ($self->modules) {
+    for my $module (@{$self->modules}) {
 
         # Shortcut
         next if $module->can('isa');
 
         # Load
         eval "require $module";
-        croak qq/Unable to load module "$module": $@/ if $@;
+        croak qq/Couldn't load module "$module": $@/ if $@;
     }
 
     return $self;
+}
+
+sub load_build {
+    my $self  = shift;
+
+    # Instantiate self
+    $self = $self->new unless ref $self;
+
+    # Load
+    $self->load(shift);
+
+    # Build
+    my $instances = $self->build(@_);
+    return $instances->[0];
 }
 
 sub reload {
@@ -148,7 +148,6 @@ sub search {
             );
             next if -d $full;
             my $name = File::Basename::fileparse($file, qr/\.pm/);
-            $self->{modules} ||= [];
             my $class = "$namespace\::$name";
             push @{$self->{modules}}, $class unless $found{$class};
             $found{$class} ||= 1;
@@ -163,7 +162,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Loader - Universal Class Loader
+Mojo::Loader - Loader
 
 =head1 SYNOPSIS
 
@@ -175,17 +174,17 @@ Mojo::Loader - Universal Class Loader
       ->search
       ->load
       ->base('Some::Module')
-      ->instantiate;
+      ->build;
 
     # Short
-    my @instances = Mojo::Loader->new->mods('Some::Namespace')->inst;
+    my $something = Mojo::Loader->load_build('Some::Namespace');
 
     # Reload
     Mojo::Loader->reload;
 
 =head1 DESCRIPTION
 
-L<Mojo::Loader> is a universal class loader and plugin framework.
+L<Mojo::Loader> is a class loader and plugin framework.
 
 =head1 ATTRIBUTES
 
@@ -196,10 +195,8 @@ L<Mojo::Loader> is a universal class loader and plugin framework.
 
 =head2 C<modules>
 
-    my @modules = $loader->mods;
-    $loader     = $loader->mods(qw/MyApp::Foo MyApp::Bar/);
-    my @modules = $loader->modules;
-    $loader     = $loader->modules(qw/MyApp::Foo MyApp::Bar/);
+    my $modules = $loader->modules;
+    $loader     = $loader->modules([qw/MyApp::Foo MyApp::Bar/]);
 
 =head2 C<namespace>
 
@@ -216,31 +213,29 @@ following new ones.
     my $loader = Mojo::Loader->new;
     my $loader = Mojo::Loader->new('MyApp::Namespace');
 
-=head2 C<instantiate>
+=head2 C<build>
 
-    my $first     = $loader->inst;
-    my @instances = $loader->inst;
-    my $first     = $loader->inst(qw/foo bar baz/);
-    my @instances = $loader->inst(qw/foo bar baz/);
-    my $first     = $loader->instantiate;
-    my @instances = $loader->instantiate;
-    my $first     = $loader->instantiate(qw/foo bar baz/);
-    my @instances = $loader->instantiate(qw/foo bar baz/);
-
-Note that only the main package will be instantiated, file contents won't be
-scanned for multiple package declarations.
+    my $instances = $loader->build;
+    my $instances = $loader->build(qw/foo bar baz/);
 
 =head2 C<load>
 
     $loader = $loader->load;
 
-=head2 C<search>
+=head2 C<load_build>
 
-    $loader = $loader->search;
-    $loader = $loader->search('MyApp::Namespace');
+    my $instance = Mojo::Loader->load_build('MyApp';
+    my $instance = $loader->load_build('MyApp';
+    my $instance = Mojo::Loader->load_build('MyApp', qw/some args/);
+    my $instance = $loader->load_build('MyApp', qw/some args/);
 
 =head2 C<reload>
 
     Mojo::Loader->reload;
+
+=head2 C<search>
+
+    $loader = $loader->search;
+    $loader = $loader->search('MyApp::Namespace');
 
 =cut

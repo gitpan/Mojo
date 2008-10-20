@@ -16,12 +16,16 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
     NAME          => 'Mojo',
     VERSION_FROM  => 'lib/Mojo.pm',
+    AUTHOR        => 'Sebastian Riedel <sri@cpan.org>',
+    LICENSE       => 'perl',
+    EXE_FILES     => ['bin/mojo', 'bin/mojolicious'],
     PREREQ_PM     => {
         'Carp'                  => 0,
         'Cwd'                   => 0,
         'Digest::MD5'           => 0,
         'Encode'                => 0,
         'File::Basename'        => 0,
+        'File::Copy'            => 0,
         'File::Path'            => 0,
         'File::Spec'            => 0,
         'File::Spec::Functions' => 0,

@@ -8,6 +8,7 @@ use warnings;
 use base 'Mojo::Message';
 
 use Mojo::Cookie::Request;
+use Mojo::Parameters;
 
 __PACKAGE__->attr('method',
     chained => 1,
@@ -16,27 +17,8 @@ __PACKAGE__->attr('method',
 );
 __PACKAGE__->attr('url', chained => 1, default => sub { Mojo::URL->new });
 
-sub build_start_line {
-    my $self = shift;
-
-    my $method = $self->method;
-    my $version = $self->version;
-
-    # Request url
-    my $url   = $self->url->path;
-    my $query = $self->url->query->as_string;
-
-    $url .= "?$query" if $query;
-    $url = "/$url" unless $url =~ /^\//;
-    $url = $self->url if $self->proxy;
-
-    # HTTP 0.9
-    return $self->buffer->replace("$method $url\x0d\x0a")->as_string
-      if $version eq '0.9';
-
-    # HTTP 1.0 and above
-    return $self->buffer->replace("$method $url HTTP/$version\x0d\x0a");
-}
+*params = \&parameters;
+*query_params = \&query_parameters;
 
 sub cookies {
     my $self = shift;
@@ -44,7 +26,7 @@ sub cookies {
     # Replace cookies
     if (@_) {
         my $cookies = shift;
-        $cookies = $cookies->as_string_with_prefix;
+        $cookies = $cookies->to_string_with_prefix;
         for my $cookie (@_) { $cookies .= "; $cookie" }
         $self->headers->header('Cookie', $cookies);
         return $self;
@@ -85,6 +67,13 @@ sub fix_headers {
     return $self;
 }
 
+sub parameters {
+    my $self = shift;
+    my $params = Mojo::Parameters->new;
+    $params->merge($self->body_params, $self->query_params);
+    return $params;
+}
+
 sub parse {
     my $self = shift;
 
@@ -117,6 +106,29 @@ sub proxy {
     }
 
     return $self->{proxy};
+}
+
+sub query_parameters { return shift->url->query }
+
+sub _build_start_line {
+    my $self = shift;
+
+    my $method = $self->method;
+    my $version = $self->version;
+
+    # Request url
+    my $url   = $self->url->path;
+    my $query = $self->url->query->to_string;
+
+    $url .= "?$query" if $query;
+    $url = "/$url" unless $url =~ /^\//;
+    $url = $self->url if $self->proxy;
+
+    # HTTP 0.9
+    return "$method $url\x0d\x0a" if $version eq '0.9';
+
+    # HTTP 1.0 and above
+    return "$method $url HTTP/$version\x0d\x0a";
 }
 
 sub _parse_env {
@@ -222,7 +234,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Message::Request - HTTP Requests
+Mojo::Message::Request - Request
 
 =head1 SYNOPSIS
 
@@ -238,7 +250,7 @@ Mojo::Message::Request - HTTP Requests
 
 =head1 DESCRIPTION
 
-L<Mojo::Message::Request> is a generic container for HTTP requests.
+L<Mojo::Message::Request> is a container for HTTP requests.
 
 =head1 ATTRIBUTES
 
@@ -250,6 +262,20 @@ implements the following new ones.
     my $method = $req->method;
     $req       = $req->method('GET');
 
+=head2 C<params>
+
+=head2 C<parameters>
+
+    my $params = $req->params;
+    my $params = $req->parameters;
+
+=head2 C<query_params>
+
+=head2 C<query_parameters>
+
+    my $params = $req->query_params;
+    my $params = $req->query_parameters;
+
 =head2 C<url>
 
     my $url = $req->url;
@@ -260,13 +286,9 @@ implements the following new ones.
 L<Mojo::Message::Request> inherits all methods from L<Mojo::Message> and
 implements the following new ones.
 
-=head2 C<build_start_line>
-
-    my $string = $req->build_start_line;
-
 =head2 C<cookies>
 
-    my @cookies = $req->cookies;
+    my $cookies = $req->cookies;
     $req        = $req->cookies(Mojo::Cookie::Request->new);
 
 =head2 C<fix_headers>

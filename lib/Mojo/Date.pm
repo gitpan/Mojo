@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 
 require Time::Local;
 
@@ -22,21 +22,6 @@ sub new {
 # Or what? You'll release the dogs or the bees?
 # Or the dogs with bees in their mouths and when they bark they shoot bees at
 # you?
-sub as_string {
-    my $self = shift;
-    my $epoch = shift || $self->{epoch} || time;
-
-    my ($second, $minute, $hour, $mday, $month, $year, $wday)
-      = gmtime $epoch;
-
-    my $days   = [qw/Sun Mon Tue Wed Thu Fri Sat/];
-    my $months = [qw/Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/];
-
-    # Format
-    return sprintf("%s, %02d %s %04d %02d:%02d:%02d GMT", $days->[$wday],
-      $mday, $months->[$month], $year+1900, $hour, $minute, $second);
-}
-
 sub parse {
     my ($self, $date) = @_;
 
@@ -103,19 +88,34 @@ sub parse {
     return $self;
 }
 
+sub to_string {
+    my $self = shift;
+    my $epoch = shift || $self->{epoch} || time;
+
+    my ($second, $minute, $hour, $mday, $month, $year, $wday)
+      = gmtime $epoch;
+
+    my $days   = [qw/Sun Mon Tue Wed Thu Fri Sat/];
+    my $months = [qw/Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/];
+
+    # Format
+    return sprintf("%s, %02d %s %04d %02d:%02d:%02d GMT", $days->[$wday],
+      $mday, $months->[$month], $year+1900, $hour, $minute, $second);
+}
+
 1;
 __END__
 
 =head1 NAME
 
-Mojo::Date - HTTP Dates
+Mojo::Date - Date
 
 =head1 SYNOPSIS
 
     use Mojo::Date;
 
     my $date = Mojo::Date->new(784111777);
-    my $http_date = $date->as_string;
+    my $http_date = $date->to_string;
     $date->parse('Sun, 06 Nov 1994 08:49:37 GMT');
     my $epoch = $date->epoch;
 
@@ -143,12 +143,12 @@ following new ones.
 
     my $date = Mojo::Date->new($string);
 
-=head2 C<as_string>
-
-    my $http_date = $date->as_string;
-
 =head2 C<parse>
 
     $date = $date->parse('Sun Nov  6 08:49:37 1994');
+
+=head2 C<to_string>
+
+    my $string = $date->to_string;
 
 =cut

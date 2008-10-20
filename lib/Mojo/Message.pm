@@ -6,19 +6,23 @@ use strict;
 use warnings;
 
 use base 'Mojo::Stateful';
-use overload '""' => sub { shift->as_string }, fallback => 1;
+use overload '""' => sub { shift->to_string }, fallback => 1;
 use bytes;
 
 use Carp 'croak';
 use Mojo::Buffer;
 use Mojo::ByteStream;
 use Mojo::Content;
+use Mojo::File::Memory;
+use Mojo::Parameters;
+use Mojo::Upload;
 use Mojo::URL;
 
 __PACKAGE__->attr('buffer',
     chained => 1,
     default => sub { Mojo::Buffer->new }
 );
+__PACKAGE__->attr('build_start_line_callback', chained => 1);
 __PACKAGE__->attr('content',
     chained => 1,
     default => sub { Mojo::Content->new }
@@ -28,7 +32,9 @@ __PACKAGE__->attr([qw/major_version minor_version/],
     default => sub { 1 }
 );
 
-*as_string = \&build;
+*to_string           = \&build;
+*body_params         = \&body_parameters;
+*build_start_line_cb = \&build_start_line_callback;
 
 # I'll keep it short and sweet. Family. Religion. Friendship.
 # These are the three demons you must slay if you wish to succeed in
@@ -36,18 +42,15 @@ __PACKAGE__->attr([qw/major_version minor_version/],
 sub body {
     my ($self, $content) = @_;
 
-    # External content generator
-    $self->{body} = $content if ref $content eq 'CODE';
-
     # Plain old content
     unless ($self->is_multipart) {
 
         # Get/Set content
         if ($content) {
-            $self->content->cache(Mojo::Cache->new);
-            $self->content->cache->add_chunk($content);
+            $self->content->file(Mojo::File::Memory->new);
+            $self->content->file->add_chunk($content);
         }
-        return $self->content->cache->slurp;
+        return $self->content->file->slurp;
     }
 
     $self->content($content);
@@ -56,28 +59,47 @@ sub body {
 
 sub body_length { shift->content->body_length }
 
-# Quick Smithers. Bring the mind eraser device!
-# You mean the revolver, sir?
-# Precisely.
+sub body_parameters {
+    my $self = shift;
+    my $params = Mojo::Parameters->new;
+
+    # "x-application-urlencoded"
+    my $content_type = $self->headers->content_type || '';
+    if ($content_type =~ /x-application-urlencoded/i) {
+        my $raw = $self->content->file->slurp;
+
+        # Parse
+        $params->parse($raw);
+
+        return $params;
+    }
+
+    # "multipart/formdata"
+    elsif ($content_type =~ /multipart\/form-data/i) {
+        my $formdata = $self->_parse_formdata;
+
+        # Formdata
+        for my $data (@$formdata) {
+            my $name     = $data->[0];
+            my $filename = $data->[1];
+            my $part     = $data->[2];
+
+            $params->append($name, $part->file->slurp) unless $filename;
+        }
+    }
+
+    return $params;
+}
+
 sub build {
     my $self = shift;
     my $message = '';
 
     # Start line
-    my $offset = 0;
-    while ($offset < $self->start_line_length) {
-        my $chunk = $self->get_start_line_chunk($offset);
-        $offset += length $chunk;
-        $message .= $chunk;
-    }
+    $message .= $self->build_start_line;
 
     # Headers
-    $offset = 0;
-    while ($offset < $self->header_length) {
-        my $chunk = $self->get_header_chunk($offset);
-        $offset += length $chunk;
-        $message .= $chunk;
-    }
+    $message .= $self->build_headers;
 
     # Body
     $message .= $self->build_body;
@@ -89,27 +111,7 @@ sub build {
 # It cost 80 million dollars to make.
 # How do you sleep at night?
 # On top of a pile of money, with many beautiful women.
-sub build_body {
-    my $self = shift;
-
-    my $body = '';
-    my $offset = 0;
-    while (1) {
-        my $chunk = $self->get_body_chunk($offset);
-
-        # No content yet, try again
-        next unless defined $chunk;
-
-        # End of content
-        last unless length $chunk;
-
-        # Content
-        $offset += length $chunk;
-        $body .= $chunk;
-    }
-
-    return $body;
-}
+sub build_body { shift->content->build_body(@_) }
 
 sub build_headers {
     my $self = shift;
@@ -120,17 +122,31 @@ sub build_headers {
     # Fix headers
     $self->fix_headers;
 
-    return $self->buffer->replace($self->content->build_headers)->as_string;
+    return $self->content->build_headers;
 }
 
 sub build_start_line {
-    croak 'Method "build_start_line" not implemented by subclass';
+    my $self = shift;
+
+    my $startline = '';
+    my $offset = 0;
+    while (1) {
+        my $chunk = $self->get_start_line_chunk($offset);
+
+        # No start line yet, try again
+        next unless defined $chunk;
+
+        # End of start line
+        last unless length $chunk;
+
+        # Start line
+        $offset += length $chunk;
+        $startline .= $chunk;
+    }
+
+    return $startline;
 }
 
-# B-6
-# You sunk my scrabbleship!
-# This game makes no sense.
-# Tell that to the good men who just lost their lives... SEMPER-FI!
 sub fix_headers {
     my $self = shift;
 
@@ -144,29 +160,32 @@ sub fix_headers {
     return $self;
 }
 
-sub get_body_chunk {
-    my $self = shift;
-
-    return $self->is_chunked
-      ? $self->_get_chunked_body_chunk(@_)
-      : $self->content->get_body_chunk(@_);
-}
+sub get_body_chunk { shift->content->get_body_chunk(@_) }
 
 sub get_header_chunk {
-    my ($self, $offset) = @_;
-    my $copy = $self->buffer->raw_length
-      ? $self->buffer->empty
-      : $self->build_headers;
-    return substr($copy, $offset, 4096);
+    my $self = shift;
+
+    # HTTP 0.9 has no headers
+    return '' if $self->version eq '0.9';
+
+    # Fix headers
+    $self->fix_headers;
+
+    $self->content->get_header_chunk(@_);
 }
 
 sub get_start_line_chunk {
     my ($self, $offset) = @_;
-    my $copy = $self->buffer || $self->build_start_line;
+
+    # Start line generator
+    return $self->build_start_line_cb->($self, $offset)
+      if $self->build_start_line_cb;
+
+    my $copy = $self->_build_start_line;
     return substr($copy, $offset, 4096);
 }
 
-sub header_length { return length shift->build_headers }
+sub header_length { shift->content->header_length }
 
 sub headers { shift->content->headers(@_) }
 
@@ -211,6 +230,41 @@ sub parse {
 
 sub start_line_length { return length shift->build_start_line }
 
+sub uploads {
+    my $self = shift;
+
+    my $uploads = {};
+    return $uploads unless $self->is_multipart;
+
+    my $formdata = $self->_parse_formdata;
+
+    # Formdata
+    for my $data (@$formdata) {
+        my $name     = $data->[0];
+        my $filename = $data->[1];
+        my $part     = $data->[2];
+
+        next unless $filename;
+
+        my $upload = Mojo::Upload->new;
+        $upload->file($part->file);
+        $upload->filename($filename);
+        $upload->headers($part->headers);
+
+        # Multiple uploads with same name
+        if (exists $uploads->{$name}) {
+            $uploads->{$name} = [$uploads->{$name}]
+              unless ref $uploads->{$name} eq 'ARRAY';
+            push @{$uploads->{$name}}, $upload;
+        }
+
+        # Simple upload
+        else { $uploads->{$name} = $upload }
+    }
+
+    return $uploads;
+}
+
 sub version {
     my ($self, $version) = @_;
 
@@ -231,51 +285,40 @@ sub version {
     return $self;
 }
 
-sub _get_chunked_body_chunk {
-    my ($self, $offset) = @_;
+sub _build_start_line {
+    croak 'Method "_build_start_line" not implemented by subclass';
+}
 
-    # Start
-    unless (defined $self->{_chunk_offset}) {
-        $self->{_chunk_offset} = 0;
-        $self->buffer->empty;
-    }
+sub _parse_formdata {
+    my $self = shift;
 
-    # Buffered?
-    $self->buffer->remove($offset - $self->{_chunk_offset});
-    return $self->buffer->as_string if $self->buffer->buffer_length;
+    my @formdata;
 
-    # Generate more
-    $self->{_chunk_offset} = $offset;
-    unless ($self->{_chunks_done}) {
-        my $chunk = $self->{body}->($self);
-        return undef unless defined $chunk;
-        my $chunk_length = length $chunk;
+    # Check content
+    my $content = $self->content;
+    return \@formdata unless $content->is_multipart;
 
-        # Trailing headers?
-        my $headers = 1 if ref $chunk && $chunk->isa('Mojo::Headers');
+    # Walk the tree
+    my @parts;
+    push @parts, $content;
+    while (my $part = shift @parts) {
 
-        # End
-        if ($headers || ($chunk_length == 0)) {
-            $self->buffer->add_chunk("\x0d\x0a0\x0d\x0a");
-
-            # Trailing headers
-            $self->buffer->add_chunk("$chunk\x0d\x0a\x0d\x0a") if $headers;
-            $self->{_chunks_done} = 1;
+        # Multipart?
+        if ($part->is_multipart) {
+            unshift @parts, @{$part->parts};
+            next;
         }
 
-        # Separator
-        else {
+        # "Content-Disposition"
+        my $disposition = $part->headers->content_disposition;
+        next unless $disposition;
+        my ($name)     = $disposition =~ /\ name="?([^\";]+)"?/;
+        my ($filename) = $disposition =~ /\ filename="?([^\"]*)"?/;
 
-            # First chunk has no leading CRLF
-            $self->buffer->add_chunk("\x0d\x0a") unless $offset == 0;
-
-            # Chunk
-            $self->buffer->add_chunk(
-                sprintf('%x', length $chunk) . "\x0d\x0a$chunk"
-            );
-        }
+        push @formdata, [$name, $filename, $part];
     }
-    return $self->buffer->as_string;
+
+    return \@formdata;
 }
 
 1;
@@ -283,7 +326,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Message - HTTP Message Base Class
+Mojo::Message - Message Base Class
 
 =head1 SYNOPSIS
 
@@ -291,7 +334,7 @@ Mojo::Message - HTTP Message Base Class
 
 =head1 DESCRIPTION
 
-L<Mojo::Message> is a generic base class for HTTP messages.
+L<Mojo::Message> is a base class for HTTP messages.
 
 =head1 ATTRIBUTES
 
@@ -306,6 +349,17 @@ implements the following new ones.
 
     my $buffer = $message->buffer;
     $message   = $message->buffer(Mojo::Buffer->new);
+
+=head2 C<build_start_line_cb>
+
+=head2 C<build_start_line_callback>
+
+    my $cb = $message->build_start_line_cb;
+    my $cb = $message->build_start_line_callback;
+
+    $message = $content->build_start_line_callback(sub {
+        return "HTTP/1.1 200 OK\r\n\r\n";
+    });
 
 =head2 C<content>
 
@@ -349,24 +403,19 @@ implements the following new ones.
 L<Mojo::Message> inherits all methods from L<Mojo::Stateful> and implements
 the following new ones.
 
-=head2 C<as_string>
-
-    my $string = $message->as_string;
-
 =head2 C<body>
 
     my $string = $message->body;
     $message = $message->body('Hello!');
 
-    $counter = 1;
-    $message = $message->body(sub {
-        my $self  = shift;
-        my $chunk = '';
-        $chunk    = "hello world!" if $counter == 1;
-        $chunk    = "hello world2!\n\n" if $counter == 2;
-        $counter++;
-        return $chunk;
-    });
+=head2 C<body_params>
+
+=head2 C<body_parameters>
+
+    my $params = $message->body_params;
+    my $params = $message->body_parameters;
+
+=head2 C<to_string>
 
 =head2 C<build>
 
@@ -404,7 +453,7 @@ the following new ones.
 
     my $is_chunked = $message->is_chunked;
 
-=header2 C<is_multipart>
+=head2 C<is_multipart>
 
     my $is_multipart = $message->is_multipart;
 
@@ -415,5 +464,9 @@ the following new ones.
 =head2 C<parse>
 
     $message = $message->parse('HTTP/1.1 200 OK...');
+
+=head2 C<uploads>
+
+    my $uploads = $message->uploads;
 
 =cut

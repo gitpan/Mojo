@@ -27,6 +27,7 @@ lib/Mojo/Manual/Cookbook.pod
 lib/Mojo/Manual/FrameworkBuilding.pod
 lib/Mojo/Manual/GettingStarted.pod
 lib/Mojo/Manual/HTTPGuide.pod
+lib/Mojo/Manual/Mojolicious.pod
 lib/Mojo/Message.pm
 lib/Mojo/Message/Request.pm
 lib/Mojo/Message/Response.pm
@@ -74,6 +75,7 @@ lib/MojoX/Types.pm
 lib/Test/Mojo/Server.pm
 Makefile.PL
 MANIFEST			This list of files
+MANIFEST.SKIP
 rfc2388.txt
 rfc2616.txt
 rfc2965.txt

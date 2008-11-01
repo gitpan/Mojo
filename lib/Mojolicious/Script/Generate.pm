@@ -19,7 +19,7 @@ __END__
 
 =head1 NAME
 
-Mojo::Script::Generate - Generator Script
+Mojolicious::Script::Generate - Generator Script
 
 =head1 SYNOPSIS
 

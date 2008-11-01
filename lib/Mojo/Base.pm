@@ -14,18 +14,20 @@ require Scalar::Util;
 sub new {
     my $proto = shift;
 
+    # Create instance
+    my $class = ref $proto || $proto;
+    my $self = bless {}, $class;
+
+    # Shortcut
+    return $self unless @_;
+
     # Check attributes
     my $attrs;
-    if ($_[1]) {
+    if (exists $_[1]) {
         my %attrs = (@_);
         $attrs = \%attrs;
     }
     else { $attrs = $_[0] }
-    $attrs ||= {};
-
-    # Create instance
-    my $class = ref $proto || $proto;
-    my $self = bless {}, $class;
 
     # Attributes
     for my $attr (keys %$attrs) {
@@ -51,7 +53,7 @@ sub attr {
 
     # Check options
     my $options;
-    if ($_[1]) {
+    if (exists $_[1]) {
         my %options = (@_);
         $options = \%options;
     }
@@ -76,71 +78,63 @@ sub attr {
     my $ws = '    ';
     for my $attr (@$attrs) {
 
-        Carp::croak("Attribute '$attr' invalid") unless $attr =~ /^\w+$/;
+        Carp::croak("Attribute '$attr' invalid")
+          unless $attr =~ /^[a-zA-Z_]\w*$/;
 
         # Header
         my $code = "sub {\n";
-        $code .= "${ws}my \$self = shift;\n";
 
-        # No arguments
-        $code .= "${ws}if (\@_ == 0) {\n";
-        unless ($default) {
+        # No value
+        $code .= "${ws}if (\@_ == 1) {\n";
+        unless (defined $default) {
 
             # Return value
-            $code .= "$ws${ws}return \$self->{'$attr'};\n";
+            $code .= "$ws${ws}return \$_[0]->{'$attr'};\n";
         }
         else {
 
             # Return value
-            $code .= "$ws${ws}return \$self->{'$attr'} ";
-            $code .= "if defined \$self->{'$attr'};\n";
+            $code .= "$ws${ws}return \$_[0]->{'$attr'} ";
+            $code .= "if exists \$_[0]->{'$attr'};\n";
 
             # Return default value
-            $code .= "$ws${ws}return \$self->{'$attr'} = ";
+            $code .= "$ws${ws}return \$_[0]->{'$attr'} = ";
             $code .= ref $default eq 'CODE'
-              ? '$default->($self)'
+              ? '$default->($_[0])'
               : '$default';
             $code .= ";\n";
         }
         $code .= "$ws}\n";
 
-        # Single argument
-        $code .= "${ws}elsif (\@_ == 1) { \n";
+        # Value
         if ($filter) {
 
             # Filter and store argument
-            $code .= "$ws${ws}local \$_ = \$_[0];\n";
-            $code .= "$ws$ws\$self->{'$attr'} = \$filter->(\$self, \$_);\n";
+            $code .= "${ws}local \$_ = \$_[1];\n";
+            $code .= "$ws\$_[0]->{'$attr'} = \$filter->(\$_[0], \$_);\n";
         }
         else {
 
-            # Store argument
-            $code .= "$ws$ws\$self->{'$attr'} = \$_[0];\n";
-        }
-        $code .= "$ws}\n";
+            # Store argument optimized
+            if (!$weak && !$chained) {
+                $code .= "${ws}return \$_[0]->{'$attr'} = \$_[1];\n";
+            }
 
-        # Multiple arguments
-        $code .= "${ws}else {\n";
-        if ($filter) {
-
-            # Filter and store arguments
-            $code .= "$ws${ws}local \$_ = \\\@_;\n";
-            $code .= "$ws$ws\$self->{'$attr'} = \$filter->(\$self, \$_);\n";
+            # Store argument the old way
+            else {
+                $code .= "$ws\$_[0]->{'$attr'} = \$_[1];\n";
+            }
         }
-        else {
-
-            # Store arguments
-            $code .= "$ws$ws\$self->{'$attr'} = \\\@_;\n";
-        }
-        $code .= "$ws}\n";
 
         # Weaken
-        $code .= "${ws}Scalar::Util::weaken(\$self->{'$attr'});\n" if $weak;
+        $code .= "${ws}Scalar::Util::weaken(\$_[0]->{'$attr'});\n" if $weak;
 
-        # Return value or instance for chained
-        $code .= "${ws}return ";
-        $code .= $chained ? '$self' : "\$self->{'$attr'}";
-        $code .= ";\n";
+        # Return value or instance for chained/weak
+        if ($chained || $weak) {
+            $code .= "${ws}return ";
+            $code .= $chained ? '$_[0]' : "\$_[0]->{'$attr'}";
+            $code .= ";\n";
+        }
 
         # Footer
         $code .= '};';
@@ -201,7 +195,7 @@ for object oriented Perl programming.
 
 Main design goals are minimalism and staying out of your way.
 
-The syntax is a bit like L<Moose> or Ruby and the performance close to
+The syntax is a bit like L<Moose> or Ruby and the performance better than
 L<Class::Accessor::Fast>.
 (Note that L<Mojo::Base> was never meant as a replacement for L<Moose>, both
 are solutions to completely different problems.)

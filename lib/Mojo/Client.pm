@@ -35,6 +35,7 @@ sub connect {
 
     # Try to get a cached connection
     my $connection = $self->withdraw_connection("$host:$port");
+    $tx->kept_alive(1) if $connection;
 
     # Non blocking connect
     unless ($connection) {
@@ -42,7 +43,10 @@ sub connect {
             Proto => 'tcp',
             Type  => SOCK_STREAM
         );
+
+        # Non blocking
         $connection->blocking(0);
+
         my $address = sockaddr_in($port, scalar inet_aton($host));
         $connection->connect($address);
         $tx->{connect_timeout} = time + 5;
@@ -50,6 +54,16 @@ sub connect {
     }
     $tx->connection($connection);
     $tx->state('connect');
+
+    # Connection header
+    unless ($req->headers->connection) {
+        if ($tx->keep_alive || $tx->kept_alive) {
+            $req->headers->connection('Keep-Alive');
+        }
+        else {
+            $req->headers->connection('Close');
+        }
+    }
 
     # We identify ourself
     my $version = $Mojo::VERSION;
@@ -182,7 +196,7 @@ sub spin {
         }
 
         # Map
-        my $name = $tx->connection->sockaddr . ':' . $tx->connection->sockport;
+        my $name = $self->_socket_name($tx->connection);
         $transaction{$name} = $tx;
 
         # Request start line written
@@ -215,11 +229,11 @@ sub spin {
         }
 
         # Done?
-        if ($tx->is_state(qw/done error/)) {
+        if ($tx->is_done) {
             $done++;
 
             # Disconnect
-            $self->disconnect($tx) if $tx->is_state('done');
+            $self->disconnect($tx) if $tx->is_done;
         }
     }
     return 1 if $done;
@@ -274,7 +288,7 @@ sub spin {
     # Read
     if (@$read) {
         my $connection = $read->[0];
-        my $name = $connection->sockaddr . ':' . $connection->sockport;
+        my $name = $self->_socket_name($connection);
         my $tx = $transaction{$name};
         my $res = $tx->res;
 
@@ -289,29 +303,29 @@ sub spin {
 
         # Read 100 Continue
         if ($tx->is_state('read_continue')) {
-            $res->state('done') if $read == 0;
+            $res->done if $read == 0;
             $res->parse($buffer);
 
             # We got a 100 Continue response
-            if ($res->is_state('done') && $res->code == 100) {
+            if ($res->is_done && $res->code == 100) {
                 $tx->res(Mojo::Message::Response->new);
                 $tx->continued(1);
                 $tx->{_continue} = 0;
             }
 
             # We got something else
-            elsif ($res->is_state('done')) {
+            elsif ($res->is_done) {
                 $tx->res($res);
                 $tx->continued(0);
-                $tx->state('done');
+                $tx->done;
             }
         }
 
         # Read response
         elsif ($tx->is_state('read_response')) {
-            $tx->state('done') if $read == 0;
+            $tx->done if $read == 0;
             $res->parse($buffer);
-            $tx->state('done') if $res->is_state('done');
+            $tx->done if $res->is_done;
         }
     }
 
@@ -323,7 +337,7 @@ sub spin {
         # Check for content
         for my $connection (@$write) {
 
-            my $name = $connection->sockaddr . ':' . $connection->sockport;
+            my $name = $self->_socket_name($connection);
             $tx = $transaction{$name};
             $req = $tx->req;
 
@@ -386,6 +400,16 @@ sub withdraw_connection {
     return $result;
 }
 
+sub _socket_name {
+    my ($self, $s) = @_;
+    my $n = join ':', $s->sockaddr, $s->sockport, $s->peeraddr, $s->peerport;
+
+    # Temporary workaround for win32 weirdness
+    $n =~ s/[^\w]/x/gi;
+
+    return $n;
+}
+
 1;
 __END__
 
@@ -398,7 +422,7 @@ Mojo::Client - Client
     use Mojo::Client;
     use Mojo::Transaction;
 
-    my $tx = Mojo::Transacrtion->new;
+    my $tx = Mojo::Transaction->new;
     $tx->req->method('GET');
     $tx->req->url->parse('http://cpan.org');
 

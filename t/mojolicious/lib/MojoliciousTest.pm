@@ -12,14 +12,10 @@ sub startup {
     my $self = shift;
 
     # Template root
-    $self->renderer->root(
-        $self->home->to_string(qw/t mojolicious templates/)
-    );
+    $self->renderer->root($self->home->rel_dir('t/mojolicious/templates'));
 
     # Static root
-    $self->static->root(
-        $self->home->to_string(qw/t mojolicious public/)
-    );
+    $self->static->root($self->home->rel_dir('t/mojolicious/public'));
 
     # Routes
     my $r = $self->routes;

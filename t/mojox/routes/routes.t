@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 30;
+use Test::More tests => 41;
 
 use Mojo::Transaction;
 
@@ -19,22 +19,28 @@ my $r = MojoX::Routes->new;
 my $test = $r->route('/:controller/test')->to(action => 'test');
 
 # /*/test/edit
-$test->route('/edit')->to(action => 'edit');
+$test->route('/edit')->to(action => 'edit')->name('test_edit');
 
 # /*/test/delete/*
 $test->route('/delete/:id', id => qr/\d+/)->to(action => 'delete', id => 23);
 
 # /test2
-my $test2 = $r->gate('/test2')->to(controller => 'test2');
+my $test2 = $r->bridge('/test2')->to(controller => 'test2');
 
 # /test2 (inline)
-$test2->gate->to(controller => 'index');
+$test2->bridge->to(controller => 'index');
 
 # /test2/foo
-$test2->gate('/foo')->to(controller => 'baz');
+$test2->bridge('/foo')->to(controller => 'baz');
 
 # /test2/bar
 $test2->route('/bar')->to(controller => 'lalala');
+
+# /test3
+my $test3 = $r->waypoint('/test3')->to(controller => 's', action => 'l');
+
+# /test3/edit
+$test3->route('/edit')->to(action => 'edit');
 
 # Path and captures
 my $match = $r->match(_tx('/foo/test/edit'));
@@ -77,6 +83,25 @@ is($match->stack->[1]->{controller}, 'index');
 is($match->stack->[2]->{controller}, 'lalala');
 is($match->captures->{controller}, 'lalala');
 is($match->url_for, '/test2/bar');
+
+# Waypoints
+$match = $r->match(_tx('/test3'));
+is($match->stack->[0]->{controller}, 's');
+is($match->stack->[0]->{action}, 'l');
+is($match->url_for, '/test3');
+$match = $r->match(_tx('/test3/'));
+is($match->stack->[0]->{controller}, 's');
+is($match->stack->[0]->{action}, 'l');
+is($match->url_for, '/test3');
+$match = $r->match(_tx('/test3/edit'));
+is($match->stack->[0]->{controller}, 's');
+is($match->stack->[0]->{action}, 'edit');
+is($match->url_for, '/test3/edit');
+
+# Named url_for
+$match = $r->match(_tx('/test3'));
+is($match->url_for, '/test3');
+is($match->url_for('test_edit', controller => 'foo'), '/foo/test/edit');
 
 # Helper
 sub _tx {

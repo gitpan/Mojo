@@ -21,8 +21,8 @@ sub run {
     my $name = $self->class_to_file($class);
 
     # Script
-    $self->render_to_rel_file('mojo', "$name/bin/mojolicious", $class);
-    $self->chmod_file("$name/bin/mojolicious", 0744);
+    $self->render_to_rel_file('mojo', "$name/bin/$name", $class);
+    $self->chmod_file("$name/bin/$name", 0744);
 
     # Appclass
     my $app = $self->class_to_path($class);
@@ -53,7 +53,7 @@ sub run {
 
 =head1 NAME
 
-Mojo::Script::Generate::App - App Generator Script
+Mojolicious::Script::Generate::App - App Generator Script
 
 =head1 SYNOPSIS
 
@@ -74,13 +74,20 @@ L<Mojo::Script>.
 =head1 METHODS
 
 L<Mojolicious::Script::Generate::App> inherits all methods from
-L<Mojo::Script>.
+L<Mojo::Script> and implements the following new ones.
+
+=head2 C<run>
+
+    $app->run(@ARGV);
 
 =cut
 
 __DATA__
 __404__
-Document not found.
+<!doctype html>
+    <head><title>Document not found.</title></head>
+    <body><h2>Document not found.</h2></body>
+</html>
 __mojo__
 % my $class = shift;
 #!<%= $^X %>
@@ -103,7 +110,7 @@ eval 'use Mojolicious::Scripts';
 if ($@) {
     print <<EOF;
 It looks like you don't have the Mojo Framework installed.
-Please visit http://getmojo.kraih.com for detailed installation instructions.
+Please visit http://mojolicious.org for detailed installation instructions.
 
 EOF
     exit;
@@ -131,7 +138,7 @@ sub dispatch {
     # Use routes if we don't have a response code yet
     $self->routes->dispatch($c) unless $c->res->code;
 
-    # Nothing found
+    # Nothing found, serve static file "public/404.html"
     unless ($c->res->code) {
         $self->static->serve($c, '/404.html');
         $c->res->code(404);
@@ -142,7 +149,7 @@ sub dispatch {
 sub startup {
     my $self = shift;
 
-    # The routes
+    # Routes
     my $r = $self->routes;
 
     # Default route
@@ -160,37 +167,25 @@ use warnings;
 
 use base 'Mojolicious::Controller';
 
-# This is a templateless action
-sub test {
-    my ($self, $c) = @_;
-
-    # Response object
-    my $res = $c->res;
-
-    # Code
-    $res->code(200);
-
-    # Headers
-    $res->headers->content_type('text/html');
-
-    # Content
-    my $url = $c->url_for;
-    $url->path->parse('/index.html');
-    $res->body(qq/<a href="$url">Forward to a static document.<\/a>/);
-}
-
 # This action will render a template
 sub welcome {
     my ($self, $c) = @_;
 
-    # Render the template
+    # Render template "example/welcome.phtml"
     $c->render;
 }
 
 1;
 __static__
-This is a static document at public/index.html,
-<a href="/">click here</a> to get back to the start.
+<!doctype html>
+    <head><title>Welcome to the Mojolicious Web Framework!</title></head>
+    <body>
+        <h2>Welcome to the Mojolicious Web Framework!</h2>
+        This is the static document "public/index.html",
+        <a href="/">click here</a>
+        to get back to the start.
+    </body>
+</html>
 __test__
 % my $class = shift;
 #!perl
@@ -204,19 +199,32 @@ use Test::More tests => 4;
 
 use_ok('<%= $class %>');
 
+# Prepare client and transaction
 my $client = Mojo::Client->new;
 my $tx     = Mojo::Transaction->new_get('/');
 
+# Process request
 $client->process_local('<%= $class %>', $tx);
 
+# Test response
 is($tx->res->code, 200);
 is($tx->res->headers->content_type, 'text/html');
 like($tx->res->content->file->slurp, qr/Mojolicious Web Framework/i);
 __welcome__
 % my $c = shift;
-
-<h2>Welcome to the Mojolicious Web Framework!</h2>
-
-This page was generated from a template at templates/example/test.phtml, 
-<a href="<%= $c->url_for(action => 'test') %>">click here</a> 
-to move forward to a templateless action.
+<!doctype html>
+    <head><title>Welcome to the Mojolicious Web Framework!</title></head>
+    <body>
+        <h2>Welcome to the Mojolicious Web Framework!</h2>
+        This page was generated from the template
+        "templates/example/test.phtml",
+        <a href="<%= $c->url_for %>">
+            click here
+        </a> 
+        to reload the page or
+        <a href="/index.html">
+            here
+        </a>
+        to move forward to a static page.
+    </body>
+</html>

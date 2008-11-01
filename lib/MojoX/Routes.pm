@@ -6,7 +6,6 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
-use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use Mojo::URL;
 use MojoX::Routes::Match;
@@ -14,9 +13,9 @@ use MojoX::Routes::Pattern;
 
 use constant DEBUG => $ENV{MOJOX_ROUTES_DEBUG} || 0;
 
+__PACKAGE__->attr([qw/block inline name/], chained => 1);
 __PACKAGE__->attr('children', chained => 1, default => sub { [] });
-__PACKAGE__->attr([qw/inline name/], chained => 1);
-__PACKAGE__->attr('parent', chained => 1, weaken => 1);
+__PACKAGE__->attr('parent', chained => 1, weak => 1);
 __PACKAGE__->attr('pattern',
     chained => 1,
     default => sub { MojoX::Routes::Pattern->new }
@@ -30,6 +29,8 @@ sub new {
     return $self;
 }
 
+sub bridge { return shift->route(@_)->inline(1) }
+
 sub defaults {
     my $self = shift;
 
@@ -42,8 +43,6 @@ sub defaults {
 
     return $self;
 }
-
-sub gate { return shift->route(@_)->inline(1) }
 
 sub is_endpoint {
     my $self = shift;
@@ -82,6 +81,13 @@ sub match {
     # Update stack
     if ($self->inline || $self->is_endpoint) {
         push @{$match->stack}, $captures;
+    }
+
+    # Waypoint match
+    if ($self->block && (!$path || $path eq '/')) {
+        push @{$match->stack}, $captures;
+        $match->endpoint($self);
+        return $self;
     }
 
     # Match children
@@ -148,6 +154,8 @@ sub url_for {
     return $url;
 }
 
+sub waypoint { return shift->route(@_)->block(1) }
+
 sub _shape {
     my ($self, $pathref) = @_;
 
@@ -181,6 +189,11 @@ MojoX::Routes - Routes
 L<MojoX::Routes> is a routes implementation.
 
 =head2 ATTRIBUTES
+
+=head2 C<block>
+
+    my $block = $routes->block;
+    $routes   = $routes->block(1);
 
 =head2 C<children>
 
@@ -221,6 +234,11 @@ follwing the ones.
     my $routes = MojoX::Routes->new;
     my $routes = MojoX::Routes->new('/:controller/:action');
 
+=head2 C<bridge>
+
+    my $bridge = $routes->bridge;
+    my $bridge = $routes->bridge('/:controller/:action');
+
 =head2 C<to>
 
 =head2 C<defaults>
@@ -231,11 +249,6 @@ follwing the ones.
     $routes      = $routes->defaults({action => 'foo'});
     $routes      = $routes->to(action => 'foo');
     $routes      = $routes->to({action => 'foo'});
-
-=head2 C<gate>
-
-    my $gate = $routes->gate;
-    my $gate = $routes->gate('/:controller/:action');
 
 =head2 C<is_endpoint>
 
@@ -261,5 +274,9 @@ follwing the ones.
 
     my $url = $routes->url_for($url);
     my $url = $routes->url_for($url, {foo => 'bar'});
+
+=head2 C<waypoint>
+
+    my $route = $routes->waypoint('/:c/:a', a => qr/\w+/);
 
 =cut

@@ -14,7 +14,7 @@ __END__
 
 =head1 NAME
 
-Mojoicious::Script::Daemon - Daemon Script
+Mojolicious::Script::Daemon - Daemon Script
 
 =head1 SYNOPSIS
 

@@ -13,7 +13,7 @@ require Carp;
 use Mojo::Transaction;
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.7';
+our $VERSION = '0.8';
 
 *build_tx = \&build_transaction;
 
@@ -45,9 +45,6 @@ Mojo - The Web In A Box!
 L<Mojo> is a collection of libraries for web framework developers and example
 web frameworks.
 
-*IMPORTANT!* This is beta software, don't use it for anything serious,
-it might eat your puppy or cause the apocalypse. (You've been warned...)
-
 For userfriendly documentation see L<Mojo::Manual>.
 
 =head1 METHODS
@@ -70,16 +67,21 @@ new ones.
 
 =head2 Web
 
-    http://getmojo.kraih.com
+    http://mojolicious.org
 
 =head2 IRC
 
-    #mojo on irc.freenode.org
+    #mojo on irc.perl.org
 
-=head2 Mailing-Lists
+=head2 Mailing-List
 
     http://lists.kraih.com/listinfo/mojo
-    http://lists.kraih.com/listinfo/mojo-dev
+
+=head1 DEVELOPMENT
+
+=head2 Repository
+
+    http://github.com/kraih/mojo/commits/master
 
 =head1 SEE ALSO
 
@@ -110,6 +112,8 @@ Marcus Ramberg
 Pedro Melo
 
 Shu Cho
+
+vti
 
 And thanks to everyone else i might have forgotten. (Please send me a mail)
 

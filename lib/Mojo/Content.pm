@@ -10,20 +10,20 @@ use bytes;
 
 use Mojo::Buffer;
 use Mojo::Filter::Chunked;
+use Mojo::File;
 use Mojo::File::Memory;
 use Mojo::Content::MultiPart;
 use Mojo::Headers;
+
+use constant MAX_MEMORY_SIZE => $ENV{MOJO_MAX_MEMORY_SIZE} || 10240;
 
 __PACKAGE__->attr([qw/buffer filter_buffer/],
     chained => 1,
     default => sub { Mojo::Buffer->new }
 );
-__PACKAGE__->attr([qw/
-    build_body_callback
-    build_headers_callback
-    filter
-    parse_body_callback
-/], chained => 1);
+__PACKAGE__->attr([qw/build_body_callback build_headers_callback filter/],
+    chained => 1
+);
 __PACKAGE__->attr('file',
     chained => 1,
     default => sub { Mojo::File::Memory->new }
@@ -32,11 +32,10 @@ __PACKAGE__->attr('headers',
     chained => 1,
     default => sub { Mojo::Headers->new }
 );
-__PACKAGE__->attr('raw_header_length', default => sub { 0 });
+__PACKAGE__->attr('raw_header_length', chained => 1, default => sub { 0 });
 
 *build_body_cb    = \&build_body_callback;
 *build_headers_cb = \&build_headers_callback;
-*parse_body_cb    = \&parse_body_callback;
 
 sub build_body {
     my $self = shift;
@@ -159,14 +158,11 @@ sub parse {
 
         # Filter
         $self->filter->parse;
-        $self->state('done') if $self->filter->is_state('done');
+        $self->done if $self->filter->is_done;
     }
 
     # Not chunked, pass through
     else { $self->buffer($self->filter_buffer) }
-
-    # Parser callback for upload progress and stuff
-    $self->parse_body_cb->($self) if $self->parse_body_cb;
 
     # Content needs to be upgraded to multipart
     if ($self->is_multipart) {
@@ -184,7 +180,7 @@ sub parse {
     # Done
     unless ($self->is_chunked) {
         my $length = $self->headers->content_length || 0;
-        $self->state('done') if $length <= $self->raw_body_length;
+        $self->done if $length <= $self->raw_body_length;
     }
 
     return $self;
@@ -212,7 +208,13 @@ sub _parse_headers {
     my $raw_length = $self->headers->buffer->raw_length;
     my $raw_header_length =  $raw_length - $length;
     $self->raw_header_length($raw_header_length);
-    $self->state('body') if $self->headers->is_state('done');
+
+    # Make sure we don't waste memory
+    $self->file(Mojo::File->new)
+      if !$self->headers->content_length
+      || $self->headers->content_length > MAX_MEMORY_SIZE;
+
+    $self->state('body') if $self->headers->is_done;
 }
 
 1;
@@ -295,17 +297,6 @@ implements the following new ones.
 
     my $headers = $content->headers;
     $content    = $content->headers(Mojo::Headers->new);
-
-=head2 C<parse_body_cb>
-
-=head2 C<parse_body_callback>
-
-    my $cb   = $content->parse_body_cb;
-    my $cb   = $content->parse_body_callback;
-    $content = $content->parse_body_callback(sub {
-        my $self = shift;
-        # Do stuff! :)
-    });
 
 =head2 C<raw_header_length>
 

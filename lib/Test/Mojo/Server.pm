@@ -67,11 +67,11 @@ sub start_daemon_ok {
     return $tb->ok(0, $desc) unless $port;
 
     # Path
-    my $path = $self->home->script_to_string;
+    my $path = $self->home->executable;
     return $tb->ok(0, $desc) unless $path;
 
     # Prepare command
-    $self->command("$^X $path daemon $port");
+    $self->command(qq/$^X "$path" daemon $port/);
 
     return $self->start_server_ok($desc);
 }
@@ -85,11 +85,11 @@ sub start_daemon_prefork_ok {
     return $tb->ok(0, $desc) unless $port;
 
     # Path
-    my $path = $self->home->script_to_string;
+    my $path = $self->home->executable;
     return $tb->ok(0, $desc) unless $path;
 
     # Prepare command
-    $self->command("$^X $path daemon_prefork $port");
+    $self->command(qq/$^X "$path" daemon_prefork $port/);
     
 
     return $self->start_server_ok($desc);

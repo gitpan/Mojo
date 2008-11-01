@@ -206,7 +206,7 @@ sub _parse_multipart_boundary {
     # Begin
     if (index($self->buffer->{buffer}, "\x0d\x0a--$boundary\x0d\x0a") == 0) {
         substr $self->buffer->{buffer}, 0, length($boundary) + 6, '';
-        push @{$self->parts}, Mojo::Content->new(file => Mojo::File->new);
+        push @{$self->parts}, Mojo::Content->new;
         $self->state('multipart_body');
         return 1;
     }
@@ -214,7 +214,7 @@ sub _parse_multipart_boundary {
     # End
     if (index($self->buffer->{buffer}, "\x0d\x0a--$boundary--") == 0) {
         $self->buffer->empty;
-        $self->state('done');
+        $self->done;
     }
 
     return 0;

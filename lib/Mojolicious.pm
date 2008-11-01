@@ -46,8 +46,9 @@ sub new {
     $self->static->types($self->types);
 
     # Root
-    $self->renderer->root($self->home->to_string('templates'));
-    $self->static->root($self->home->to_string('public'));
+    $self->home->detect(ref $self);
+    $self->renderer->root($self->home->relative_directory('templates'));
+    $self->static->root($self->home->relative_directory('public'));
 
     # Startup
     $self->startup(@_);
@@ -109,6 +110,8 @@ Mojolicious - Web Framework
 =head1 DESCRIPTION
 
 L<Mojolicous> is a web framework built upon L<Mojo>.
+
+See L<Mojo::Manual::Mojolicious> for user friendly documentation.
 
 =head1 ATTRIBUTES
 

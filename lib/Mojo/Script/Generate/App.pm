@@ -23,8 +23,8 @@ sub run {
     my $name = $self->class_to_file($class);
 
     # Script
-    $self->render_to_rel_file('mojo', "$name/bin/mojo", $class);
-    $self->chmod_file("$name/bin/mojo", 0744);
+    $self->render_to_rel_file('mojo', "$name/bin/$name", $class);
+    $self->chmod_file("$name/bin/$name", 0744);
 
     # Appclass
     my $path = $self->class_to_path($class);
@@ -95,7 +95,7 @@ eval 'use Mojo::Scripts';
 if ($@) {
     print <<EOF;
 It looks like you don't have the Mojo Framework installed.
-Please visit http://getmojo.kraih.com for detailed installation instructions.
+Please visit http://mojolicious.org for detailed installation instructions.
 
 EOF
     exit;

@@ -27,7 +27,6 @@ __PACKAGE__->attr('renderer',
 );
 
 *chmod_rel_file     = \&chmod_relative_file;
-*class_to_dir_path  = \&class_to_directory_path;
 *create_dir         = \&create_directory;
 *create_rel_dir     = \&create_relative_directory;
 *rel_dir            = \&relative_directory;
@@ -53,7 +52,7 @@ sub chmod_relative_file {
     $path = $self->relative_file($path);
 
     # chmod
-    $self->chmod_file($path);
+    $self->chmod_file($path, $mod);
 }
 
 sub class_to_file {

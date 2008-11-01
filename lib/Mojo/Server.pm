@@ -53,7 +53,7 @@ __PACKAGE__->attr('handler_callback',
 *handler_cb          = \&handler_callback;
 
 sub new {
-    my $self = shift->SUPER::new();
+    my $self = shift->SUPER::new(@_);
     $self->_new_mojo_app;
     return $self;
 }
@@ -109,6 +109,21 @@ L<Mojo::Server> is a server base class.
     $server = $server->build_transaction_callback(sub {
         my $self = shift;
         return Mojo::Transaction->new;
+    });
+
+=head2 C<continue_handler_cb>
+
+=head2 C<continue_handler_callback>
+
+    my $handler = $server->continue_handler_cb;
+    $server     = $server->continue_handler_cb(sub {
+        my ($self, $tx) = @_;
+        return $tx;
+    });
+    my $handler = $server->continue_handler_callback;
+    $server     = $server->continue_handler_callback(sub {
+        my ($self, $tx) = @_;
+        return $tx;
     });
 
 =head2 C<handler_cb>

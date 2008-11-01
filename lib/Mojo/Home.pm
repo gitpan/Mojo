@@ -6,15 +6,19 @@ use strict;
 use warnings;
 
 use base 'Mojo::Base';
+use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use File::Spec;
 use FindBin;
+use Mojo::Script;
 
+__PACKAGE__->attr('application_class',  chained => 1);
 __PACKAGE__->attr('parts',  chained => 1, default => sub { [] });
-__PACKAGE__->attr('script',
-    chained => 1,
-    default => sub { $ENV{MOJO_SCRIPT} || 'mojo' }
-);
+
+*app_class = \&application_class;
+*lib_dir   = \&lib_directory;
+*rel_dir   = \&relative_directory;
+*rel_file  = \&relative_file;
 
 # I'm normally not a praying man, but if you're up there,
 # please save me Superman.
@@ -36,16 +40,20 @@ sub new {
 sub detect {
     my ($self, $class) = @_;
 
+    $self->application_class($class) if $class;
+    $class ||= $self->application_class;
+
     # Environment variable
     if ($ENV{MOJO_HOME}) {
         my @parts = File::Spec->splitdir($ENV{MOJO_HOME});
         return $self->parts(\@parts);
     }
 
-    # Try to find "mojo.pl" from lib directory
+    my $name = $self->_class_to_file($class);
+
+    # Try to find executable from lib directory
     if ($class) {
-        my $file = "$class.pm";
-        $file =~ s/::/\//g;
+        my $file = $self->_class_to_path($class);
 
         if (my $entry = $INC{$file}) {
             my $path = $entry;
@@ -55,39 +63,26 @@ sub detect {
             # Remove "lib" and "blib"
             pop @home while $home[-1] =~ /^b?lib$/ || $home[-1] eq '';
 
-            # Check for "mojo.pl"
-            my $script = $self->script;
-            return $self->parts(@home)
-              if -f File::Spec->catfile(@home, $script)
-              || -f File::Spec->catfile(@home, "$script.pl")
-              || -f File::Spec->catfile(@home, 'script', $script)
-              || -f File::Spec->catfile(@home, 'script', "$script.pl");
+            # Check for executable
+            return $self->parts(\@home)
+              if -f File::Spec->catfile(@home, 'bin', $name)
+              || -f File::Spec->catfile(@home, 'bin', 'mojo');
         }
     }
 
-    # Try to find "mojo.pl" from t directory
+    # Try to find executable from t directory
     my $path;
-    my $script = $self->script;
     my @base = File::Spec->splitdir($FindBin::Bin);
-    my $pop;
-    for my $i (1 .. 5) {
+    my @uplevel;
+    for (1 .. 5) {
+        push @uplevel, '..';
 
-        # "mojo" in root directory
-        $pop = 1;
-        $path = File::Spec->catfile(@base, '..' x $i, $script);
-        last if -f $path;
-
-        # "mojo.pl" in root directory
-        $path = File::Spec->catfile(@base, '..' x $i, "$script.pl");
+        # executable in bin directory
+        $path = File::Spec->catfile(@base, @uplevel, 'bin', $name);
         last if -f $path;
 
         # "mojo" in bin directory
-        $pop = 2;
-        $path = File::Spec->catfile(@base, '..' x $i, 'bin', $script);
-        last if -f $path;
-
-        # "mojo.pl" in bin directory
-        $path = File::Spec->catfile(@base, '..' x $i, 'bin', "$script.pl");
+        $path = File::Spec->catfile(@base, @uplevel, 'bin', 'mojo');
         last if -f $path;
     }
 
@@ -95,19 +90,33 @@ sub detect {
     if (-f $path) {
         my @parts = File::Spec->splitdir($path);
         pop @parts;
-        pop @parts if $pop == 2;
+        pop @parts;
         $self->parts(\@parts);
     }
 
     return $self;
 }
 
-sub file_to_string {
+sub executable {
     my $self = shift;
-    return File::Spec->catfile(@{$self->parts}, @_);
+
+    # Executable
+    my $path;
+    if (my $class = $self->application_class) {
+        my $name = $self->_class_to_file($class);
+        $path = File::Spec->catfile(@{$self->parts}, 'bin', $name);
+        return $path if -f $path;
+    }
+
+    # "mojo"
+    $path = File::Spec->catfile(@{$self->parts}, 'bin', 'mojo');
+    return $path if -f $path;
+
+    # No script
+    return undef;
 }
 
-sub lib_to_string {
+sub lib_directory {
     my $self = shift;
 
     # Directory found
@@ -125,35 +134,17 @@ sub parse {
     return $self;
 }
 
-sub script_to_string {
-    my $self = shift;
-
-    # "mojo" in root directory
-    my $path = File::Spec->catfile(@{$self->parts}, $self->script);
-    return $path if -f $path;
-
-    # "mojo.pl" in root directory
-    $path = File::Spec->catfile(@{$self->parts}, $self->script . '.pl');
-    return $path if -f $path;
-
-    # "mojo" in bin directory
-    $path = File::Spec->catfile(@{$self->parts}, 'bin', $self->script);
-    return $path if -f $path;
-
-    # "mojo.pl" in bin directory
-    $path = File::Spec->catfile(
-        @{$self->parts}, 'bin', $self->script . '.pl'
-    );
-    return $path if -f $path;
-
-    # No script
-    return undef;
+sub relative_directory {
+    File::Spec->catdir(@{shift->parts}, split '/', shift);
 }
 
-sub to_string {
-    my $self = shift;
-    return File::Spec->catdir(@{$self->parts}, @_);
-}
+sub relative_file { File::Spec->catfile(@{shift->parts}, split '/', shift) }
+
+sub to_string { File::Spec->catdir(@{shift->parts}) }
+
+sub _class_to_file { Mojo::Script->new->class_to_file($_[1]) }
+
+sub _class_to_path { Mojo::Script->new->class_to_path($_[1]) }
 
 1;
 __END__
@@ -172,15 +163,19 @@ L<Mojo::Home> is a container for home directories.
 
 =head1 ATTRIBUTES
 
+=head2 C<app_class>
+
+=head2 C<application_class>
+
+    my $class = $home->app_class;
+    my $class = $home->application_class;
+    $home     = $home->app_class('Foo::Bar');
+    $home     = $home->application_class('Foo::Bar');
+
 =head2 C<parts>
 
     my $parts = $home->parts;
     $home     = $home->parts([qw/foo bar baz/]);
-
-=head2 C<script>
-
-    my $script = $home->script;
-    $home      = $home->script('mojo.pl');
 
 =head1 METHODS
 
@@ -197,26 +192,38 @@ following new ones.
     $home = $home->detect;
     $home = $home->detect('My::App');
 
-=head2 C<file_to_string>
+=head2 C<executable>
 
-    my $string = $home->file_to_string(qw/foo bar.html/);
+    my $path = $home->executable;
 
-=head2 C<lib_to_string>
+=head2 C<lib_dir>
 
-    my $string = $home->lib_to_string;
+=head2 C<lib_directory>
+
+    my $path = $home->lib_dir;
+    my $path = $home->lib_directory;
 
 =head2 C<parse>
 
     $home = $home->parse('/foo/bar');
 
-=head2 C<script_to_string>
+=head2 C<rel_dir>
 
-    my $string = $home->script_to_string;
+=head2 C<relative_directory>
+
+    my $path = $home->rel_dir('foo/bar');
+    my $path = $home->relative_directory('foo/bar');
+
+=head2 C<rel_file>
+
+=head2 C<relative_file>
+
+    my $path = $home->rel_file('foo/bar.html');
+    my $path = $home->relative_file('foo/bar.html');
 
 =head2 C<to_string>
 
     my $string = $home->to_string;
-    my $string = $home->to_string(qw/foo bar/);
     my $string = "$home";
 
 =cut

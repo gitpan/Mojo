@@ -36,11 +36,14 @@ sub listen {
     # Create socket
     my $port = $self->port;
     $self->{listen} ||= IO::Socket::INET->new(
-        Blocking  => 0,
         Listen    => $self->listen_queue_size,
         LocalPort => $port,
-        Reuse     => 1
+        Proto     => 'tcp',
+        ReuseAddr => 1,
+        Type      => SOCK_STREAM
     ) or croak "Can't create listen socket: $!";
+
+    # Non blocking
     $self->{listen}->blocking(0);
 
     # Friendly message
@@ -183,6 +186,16 @@ sub _prepare_transactions {
         # Writing
         if ($tx->is_state('write')) {
 
+            # Connection header
+            unless ($tx->res->headers->connection) {
+                if ($tx->keep_alive) {
+                    $tx->res->headers->connection('Keep-Alive');
+                }
+                else {
+                    $tx->res->headers->connection('Close');
+                }
+            }
+
             # Ready for next state
             $tx->state('write_start_line');
             $tx->{_to_write} = $tx->res->start_line_length;
@@ -209,7 +222,7 @@ sub _prepare_transactions {
             if (defined $tx->continued && $tx->continued == 0) {
                 $tx->continued(1);
                 $tx->state('read');
-                $tx->state('done') unless $tx->res->code == 100;
+                $tx->done unless $tx->res->code == 100;
                 $tx->res->code(0);
                 next;
             }
@@ -247,9 +260,10 @@ sub _read {
         $tx->connection($socket);
         $tx->state('read');
         $connection->{requests}++;
+        $tx->kept_alive(1) if $connection->{requests} > 1;
 
         # Last keep alive request?
-        $tx->res->headers->connection('close')
+        $tx->res->headers->connection('Close')
           if $connection->{requests} >= $self->max_keep_alive_requests;
     }
 
@@ -290,8 +304,16 @@ sub _read {
 
 sub _socket_name {
     my ($self, $s) = @_;
+
+    # Connected?
     return undef unless $s->connected;
-    return join ':', $s->sockaddr, $s->sockport, $s->peeraddr, $s->peerport;
+
+    my $n = join ':', $s->sockaddr, $s->sockport, $s->peeraddr, $s->peerport;
+
+    # Temporary workaround for win32 weirdness
+    $n =~ s/[^\w]/x/gi;
+
+    return $n;
 }
 
 sub _write {

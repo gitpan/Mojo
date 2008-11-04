@@ -24,6 +24,7 @@ lib/Mojo/Loader.pm
 lib/Mojo/Manual.pod
 lib/Mojo/Manual/CodingGuidelines.pod
 lib/Mojo/Manual/Cookbook.pod
+lib/Mojo/Manual/FAQ.pod
 lib/Mojo/Manual/FrameworkBuilding.pod
 lib/Mojo/Manual/GettingStarted.pod
 lib/Mojo/Manual/HTTPGuide.pod

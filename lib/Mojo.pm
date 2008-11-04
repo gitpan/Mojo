@@ -13,7 +13,7 @@ require Carp;
 use Mojo::Transaction;
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.8.2';
+our $VERSION = '0.8.3';
 
 *build_tx = \&build_transaction;
 
@@ -42,8 +42,16 @@ Mojo - The Web In A Box!
 
 =head1 DESCRIPTION
 
-L<Mojo> is a collection of libraries for web framework developers and example
-web frameworks.
+L<Mojo> is a collection of libraries and example web frameworks for web
+framework developers.
+
+If you are searching for a higher level MVC web framework you should take a
+look at L<Mojolicious>.
+
+Don't be scared by the amount of different modules in the distribution, they
+are all very loosely coupled.
+You can just pick the ones you like and ignore the rest, there is no
+tradeoff.
 
 For userfriendly documentation see L<Mojo::Manual>.
 
@@ -109,7 +117,11 @@ Jesse Vincent
 
 Marcus Ramberg
 
+Mark Stosberg
+
 Pedro Melo
+
+Robert Hicks
 
 Shu Cho
 

@@ -8,12 +8,16 @@ use warnings;
 use base 'Mojo';
 
 use Mojo::Home;
-use Mojolicious::Context;
+use Mojo::Loader;
 use Mojolicious::Dispatcher;
 use Mojolicious::Renderer;
 use MojoX::Dispatcher::Static;
 use MojoX::Types;
 
+__PACKAGE__->attr('ctx_class',
+    chained => 1,
+    default => 'Mojolicious::Context'
+);
 __PACKAGE__->attr('home', chained => 1, default => sub { Mojo::Home->new });
 __PACKAGE__->attr('renderer',
     chained => 1,
@@ -32,8 +36,6 @@ __PACKAGE__->attr('types',
     default => sub { MojoX::Types->new }
 );
 
-*build_ctx = \&build_context;
-
 # The usual constructor stuff
 sub new {
     my $self = shift->SUPER::new();
@@ -47,20 +49,21 @@ sub new {
 
     # Root
     $self->home->detect(ref $self);
-    $self->renderer->root($self->home->relative_directory('templates'));
-    $self->static->root($self->home->relative_directory('public'));
+    $self->renderer->root($self->home->rel_dir('templates'));
+    $self->static->root($self->home->rel_dir('public'));
 
     # Startup
     $self->startup(@_);
 
+    # Load context class
+    Mojo::Loader->new->load($self->ctx_class);
+
     return $self;
 }
 
-sub build_context {
-    return Mojolicious::Context->new(
-        mojolicious => shift,
-        transaction => shift
-    );
+sub build_ctx {
+    my $self = shift;
+    return $self->ctx_class->new(app => $self, tx => shift);
 }
 
 # You could just overload this method
@@ -154,10 +157,7 @@ new ones.
 
 =head2 C<build_ctx>
 
-=head2 C<build_context>
-
     my $c = $mojo->build_ctx($tx);
-    my $c = $mojo->build_context($tx);
 
 =head2 C<dispatch>
 

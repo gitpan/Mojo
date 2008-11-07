@@ -13,7 +13,7 @@ require Carp;
 use Mojo::Transaction;
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.8006';
+our $VERSION = '0.8007';
 
 sub build_tx { return Mojo::Transaction->new }
 
@@ -131,6 +131,10 @@ Christian Hansen
 Gisle Aas
 
 Jesse Vincent
+
+Lars Balker Rasmussen
+
+Leon Brocard
 
 Marcus Ramberg
 

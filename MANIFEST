@@ -102,6 +102,7 @@ t/mojo/lighttpd_cgi.t
 t/mojo/lighttpd_fastcgi.t
 t/mojo/loader.t
 t/mojo/message.t
+t/mojo/server.t
 t/mojo/template.t
 t/mojo/url.t
 t/mojolicious/app.t

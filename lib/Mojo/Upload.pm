@@ -7,6 +7,7 @@ use warnings;
 
 use base 'Mojo::Base';
 
+use Carp 'croak';
 use File::Copy ();
 use Mojo::File;
 use Mojo::Headers;
@@ -23,12 +24,14 @@ __PACKAGE__->attr('headers',
 # This game makes no sense.
 # Tell that to the good men who just lost their lives... SEMPER-FI!
 sub copy_to {
-    my ($self, $path);
-    File::Copy::copy($self->file->handle->filename, $path);
+    my ($self, $path) = @_;
+    my $src = $self->file->path;
+    File::Copy::copy($src, $path)
+      || croak qq/Couldn't copy file "$src" to "$path": $!/;
     return $self;
 }
 
-sub file_length { shift->file->file_length }
+sub length { shift->file->length }
 
 sub slurp { shift->file->slurp }
 
@@ -69,9 +72,9 @@ Returns the invocant if called with arguments.
 Returns a file name like C<foo.txt> if called without arguments.
 Returns the invocant if called with arguments.
 
-=head2 C<file_length>
+=head2 C<length>
 
-    my $length = $upload->file_length;
+    my $length = $upload->length;
 
 Returns the length of the file upload in bytes.
 
@@ -96,6 +99,8 @@ following new ones.
 =head2 C<copy_to>
 
     $upload = $upload->copy_to('/foo/bar/baz.txt');
+
+Copies the uploaded file contents to the given path and returns the invocant.
 
 =head2 C<slurp>
 

@@ -168,7 +168,7 @@ sub parse {
         return $self if $self->isa('Mojo::Content::MultiPart');
 
         # Need to upgrade
-        return Mojo::Content::MultiPart->new($self);
+        return Mojo::Content::MultiPart->new($self)->parse;
     }
 
     # Parse body
@@ -207,9 +207,11 @@ sub _parse_headers {
     $self->raw_header_length($raw_header_length);
 
     # Make sure we don't waste memory
-    $self->file(Mojo::File->new)
-      if !$self->headers->content_length
-      || $self->headers->content_length > MAX_MEMORY_SIZE;
+    if ($self->file->isa('Mojo::File::Memory')) {
+        $self->file(Mojo::File->new)
+          if !$self->headers->content_length
+          || $self->headers->content_length > MAX_MEMORY_SIZE;
+    }
 
     $self->state('body') if $self->headers->is_done;
 }

@@ -1,5 +1,29 @@
 This file documents the revision history for Perl extension Mojo.
 
+0.8009  2008-11-07 00:00:00
+        - Cleaned up Mojo::Message callbacks and added tests.
+        - Fixed escaping in Mojo::URL.
+        - Fixed query string support and escaping in Mojo::Parameters.
+        - Optimized randomness in Mojo::Client. (Leon Brocard)
+        - Randomized handle order in Mojo::Client
+        - Mojo::Client now prefers writes over reads.
+        - Added copy_to and move_to to Mojo::File.
+        - Made the daemons about 20% faster.
+        - Cleaned up Mojo::File. (Leon Brocard)
+        - Fallback to default renderer in MojoX::Renderer.
+          (Ask Bjoern Hansen)
+        - Made Mojo::Base instantiation a little bit faster.
+        - Added documentation to Mojo::Base. (Marcus Ramberg)
+        - Moved the home attribute from Mojolicious to Mojo.
+        - Fixed MojoX::Renderer to pass options through to the handler.
+          (Ask Bjoern Hansen)
+        - Fixed Mojo::Server::FastCGI according to the spec.
+        - Dispatchers now return true or false.
+        - Added documentation to Mojo::Home. (Mark Stosberg)
+        - Added documentation to Mojo::Buffer. (Mark Stosberg)
+        - Removed replace from Mojo::Buffer. (Mark Stosberg)
+        - Added buffer tests. (Mark Stosberg)
+
 0.8008  2008-11-07 00:00:00
         - Fixed multipart parsing for short requests.
         - Fixed content file storage to specific file.

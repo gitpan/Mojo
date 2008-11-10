@@ -13,7 +13,7 @@ use Mojo::URL;
 
 __PACKAGE__->attr([qw/leading_slash trailing_slash/],
     chained => 1,
-    default => sub { 0 }
+    default => 0
 );
 __PACKAGE__->attr('parts', chained => 1, default => sub { [] });
 
@@ -87,8 +87,8 @@ sub parse {
         # Garbage
         next unless $part;
 
-        # Unescape
-        push @parts, Mojo::ByteStream->new($part)->url_unescape->to_string;
+        # Store
+        push @parts, $part;
     }
 
     $self->parts(\@parts);

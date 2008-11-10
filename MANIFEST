@@ -82,6 +82,7 @@ rfc2616.txt
 rfc2965.txt
 rfc3986.txt
 t/mojo/base.t
+t/mojo/buffer.t
 t/mojo/bytestream.t
 t/mojo/cgi.t
 t/mojo/client.t

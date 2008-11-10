@@ -11,8 +11,8 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 use Mojo::ByteStream;
 use Mojo::URL;
 
-__PACKAGE__->attr('pair_separator', chained => 1, default => sub { '&' });
-__PACKAGE__->attr('params',     chained => 1, default => sub { [] });
+__PACKAGE__->attr('pair_separator', chained => 1, default => '&');
+__PACKAGE__->attr('params',         chained => 1, default => sub { [] });
 
 # Yeah, Moe, that team sure did suck last night. They just plain sucked!
 # I've seen teams suck before,
@@ -72,6 +72,13 @@ sub param {
         push @values, $params->[$i + 1] if $params->[$i] eq $name;
     }
 
+    # Unescape
+    for (my $i = 0; $i <= $#values; $i++) {
+        $values[$i] = Mojo::ByteStream->new($values[$i])
+          ->url_unescape
+          ->to_string;
+    }
+
     return defined $values[1] ? \@values : $values[0];
 }
 
@@ -80,6 +87,12 @@ sub parse {
 
     # Shortcut
     return $self unless defined $_[0];
+
+    # Detect query string without key/value pairs
+    if ($_[0] !~ /\=/) {
+        $self->params([$_[0], undef]);
+        return $self;
+    }
 
     # W3C suggests to also accept ";" as a separator
     for my $pair (split /[\&\;]+/, $_[0]) {
@@ -91,11 +104,6 @@ sub parse {
 
         my $name  = $1;
         my $value = $2;
-
-        # Unescape
-        $name  = Mojo::ByteStream->new($name)->url_unescape->to_string;
-        $value = Mojo::ByteStream->new($value)->url_unescape->to_string
-          if $value;
 
         push @{$self->params}, $name, $value;
     }
@@ -125,6 +133,10 @@ sub to_hash {
         my $name  = $params->[$i];
         my $value = $params->[$i + 1];
 
+        # Unescape
+        $name  = Mojo::ByteStream->new($name)->url_unescape->to_string;
+        $value = Mojo::ByteStream->new($value)->url_unescape->to_string;
+
         # Array
         if (exists $params{$name}) {
             $params{$name} = [$params{$name}]
@@ -143,28 +155,39 @@ sub to_string {
     my $self   = shift;
     my $params = $self->params;
 
+    # Shortcut
+    return undef unless @{$self->params};
+
     # Format
     my @params;
     for (my $i = 0; $i < @$params; $i += 2) {
         my $name  = $params->[$i];
-        my $value = $params->[$i + 1];
+        my $value = $params->[$i + 1] || undef;
 
         # We replace whitespace with "+"
         $name  =~ s/\ /\+/g;
 
-        # *( pchar / "/" / "?" )
-        $name  = Mojo::ByteStream->new($name)
-          ->url_escape($Mojo::URL::PCHAR . '\/\?');
-
         # Value is optional
-        if ($value) {
+        if (defined $value) {
 
             # We replace whitespace with "+"
             $value =~ s/\ /\+/g;
 
-            # *( pchar / "/" / "?" )
+            # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
             $value = Mojo::ByteStream->new($value)
-              ->url_escape($Mojo::URL::PCHAR . '\/\?');
+              ->url_escape($Mojo::URL::PARAM);
+
+            # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
+            $name = Mojo::ByteStream->new($name)
+              ->url_escape($Mojo::URL::PARAM);
+        }
+
+        # No value
+        else {
+
+            # *( pchar / "/" / "?" )
+            $name = Mojo::ByteStream->new($name)
+              ->url_escape($Mojo::URL::PCHAR);
         }
 
         push @params, defined $value ? "$name=$value" : "$name";

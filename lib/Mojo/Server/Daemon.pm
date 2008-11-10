@@ -11,19 +11,10 @@ use Carp 'croak';
 use IO::Select;
 use IO::Socket;
 
-__PACKAGE__->attr('keep_alive_timeout',
-    chained => 1,
-    default => sub { 15 }
-);
-__PACKAGE__->attr('listen_queue_size',
-    chained => 1,
-    default => sub { SOMAXCONN }
-);
-__PACKAGE__->attr('max_clients', chained => 1, default => sub { 1000 });
-__PACKAGE__->attr('max_keep_alive_requests',
-    chained => 1,
-    default => sub { 100 }
-);
+__PACKAGE__->attr('keep_alive_timeout', chained => 1, default => 15);
+__PACKAGE__->attr('listen_queue_size', chained => 1, default => SOMAXCONN);
+__PACKAGE__->attr('max_clients', chained => 1, default => 1000);
+__PACKAGE__->attr('max_keep_alive_requests', chained => 1, default => 100);
 __PACKAGE__->attr('port', chained => 1, default => 3000);
 
 sub accept_lock { return 1 }
@@ -84,6 +75,12 @@ sub spin {
     elsif (@$read) { $self->_read($read) }
 }
 
+sub _drop_connection {
+    my ($self, $name) = @_;
+    delete $self->{_reverse}->{$self->{_connections}->{$name}};
+    delete $self->{_connections}->{$name};
+}
+
 sub _prepare_connections {
     my $self = shift;
 
@@ -103,6 +100,7 @@ sub _prepare_connections {
         # Connected
         $accept->{socket}->blocking(0);
         next unless my $name = $self->_socket_name($accept->{socket});
+        $self->{_reverse}->{$accept->{socket}} = $name;
         $self->{_connections}->{$name} = $accept;
     }
     $self->{_accepted} = [@accepted];
@@ -131,7 +129,7 @@ sub _prepare_select {
         # Keep alive timeout
         my $timeout = time - $connection->{time};
         if ($self->keep_alive_timeout < $timeout) {
-            delete $self->{_connections}->{$name};
+            $self->_drop_connection($name);
             next;
         }
 
@@ -140,7 +138,8 @@ sub _prepare_select {
 
             # Keep alive request limit
             if ($connection->{requests} >= $self->max_keep_alive_requests) {
-                delete $self->{_connections}->{$name};
+                $self->_drop_connection($name);
+                
             }
 
             # Keep alive
@@ -173,7 +172,7 @@ sub _prepare_transactions {
 
         # Cleanup dead connection
         unless ($connection->{socket}->connected) {
-            delete $self->{_connections}->{$name};
+            $self->_drop_connection($name);
             next;
         }
 
@@ -229,7 +228,7 @@ sub _prepare_transactions {
 
             # Done
             delete $connection->{tx};
-            delete $self->{_connections}->{$name} unless $tx->keep_alive;
+            $self->_drop_connection($name) unless $tx->keep_alive;
         }
     }
 }
@@ -275,7 +274,7 @@ sub _read {
 
     # Read error
     unless (defined $read) {
-        delete $self->{_connections}->{$name};
+        $self->_drop_connection($name);
         return 1;
     }
 
@@ -304,6 +303,9 @@ sub _read {
 
 sub _socket_name {
     my ($self, $s) = @_;
+
+    # Cache
+    return $self->{_reverse}->{$s} if $self->{_reverse}->{$s};
 
     # Connected?
     return undef unless $s->connected;

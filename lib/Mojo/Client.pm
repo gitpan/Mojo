@@ -13,12 +13,9 @@ use Mojo;
 use Mojo::Loader;
 use Mojo::Message::Response;
 
-__PACKAGE__->attr('continue_timeout', chained => 1, default => sub { 3 });
-__PACKAGE__->attr('keep_alive_timeout',
-    chained => 1,
-    default => sub { 15 }
-);
-__PACKAGE__->attr('select_timeout', chained => 1, default => sub { 5 });
+__PACKAGE__->attr('continue_timeout', chained => 1, default => 3);
+__PACKAGE__->attr('keep_alive_timeout', chained => 1, default => 15);
+__PACKAGE__->attr('select_timeout', chained => 1, default => 5);
 
 sub connect {
     my ($self, $tx) = @_;
@@ -285,9 +282,53 @@ sub spin {
     $read  ||= [];
     $write ||= [];
 
+    # Make a random decision about reading or writing
+    my $do = -1;
+    $do = 0 if @$read;
+    $do = 1 if @$write;
+    $do = int(rand(3))-1 if @$read && @$write;
+
+    # Write
+    if ($do == 1) {
+
+        my ($tx, $req, $chunk);
+
+        # Check for content
+        for my $connection (sort {int(rand(3))-1} @$write) {
+
+            my $name = $self->_socket_name($connection);
+            $tx = $transaction{$name};
+            $req = $tx->req;
+
+            # Body
+            $chunk = $req->get_body_chunk($tx->{_offset} || 0)
+              if $tx->is_state('write_body');
+
+            # Headers
+            $chunk = $req->get_header_chunk($tx->{_offset} || 0)
+              if $tx->is_state('write_headers');
+
+            # Start line
+            $chunk = $req->get_start_line_chunk($tx->{_offset} || 0)
+              if $tx->is_state('write_start_line');
+
+            # Content generator ready?
+            last if defined $chunk;
+        }
+
+        # Write chunk
+        my $written = $tx->connection->syswrite($chunk, length $chunk);
+        $tx->error("Can't write request: $!") unless defined $written;
+        return 1 if $tx->has_error;
+
+        $tx->{_to_write} -= $written;
+        $tx->{_offset} += $written;
+    }
+
     # Read
-    if (@$read) {
-        my $connection = $read->[0];
+    elsif ($do == 0) {
+
+        my $connection = $read->[rand(@$read)];
         my $name = $self->_socket_name($connection);
         my $tx = $transaction{$name};
         my $res = $tx->res;
@@ -327,43 +368,6 @@ sub spin {
             $res->parse($buffer);
             $tx->done if $res->is_done;
         }
-    }
-
-    # Write
-    elsif (@$write) {
-
-        my ($tx, $req, $chunk);
-
-        # Check for content
-        for my $connection (@$write) {
-
-            my $name = $self->_socket_name($connection);
-            $tx = $transaction{$name};
-            $req = $tx->req;
-
-            # Body
-            $chunk = $req->get_body_chunk($tx->{_offset} || 0)
-              if $tx->is_state('write_body');
-
-            # Headers
-            $chunk = $req->get_header_chunk($tx->{_offset} || 0)
-              if $tx->is_state('write_headers');
-
-            # Start line
-            $chunk = $req->get_start_line_chunk($tx->{_offset} || 0)
-              if $tx->is_state('write_start_line');
-
-            # Content generator ready?
-            last if defined $chunk;
-        }
-
-        # Write chunk
-        my $written = $tx->connection->syswrite($chunk, length $chunk);
-        $tx->error("Can't write request: $!") unless defined $written;
-        return 1 if $tx->has_error;
-
-        $tx->{_to_write} -= $written;
-        $tx->{_offset} += $written;
     }
 
     return $done;

@@ -11,11 +11,13 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 use Mojo::ByteStream;
 use Mojo::URL;
 
-__PACKAGE__->attr([qw/leading_slash trailing_slash/],
-    chained => 1,
-    default => 0
+__PACKAGE__->attr(
+    [qw/leading_slash trailing_slash/] => (
+        chained => 1,
+        default => 0
+    )
 );
-__PACKAGE__->attr('parts', chained => 1, default => sub { [] });
+__PACKAGE__->attr(parts => (chained => 1, default => sub { [] }));
 
 sub new {
     my $self = shift->SUPER::new();
@@ -25,7 +27,17 @@ sub new {
 
 sub append {
     my $self = shift;
-    push @{$self->parts}, @_;
+
+    for (@_) {
+        my $value = "$_";
+
+        # *( pchar / "/" / "?" )
+        $value =
+          Mojo::ByteStream->new($value)->url_escape($Mojo::URL::PCHAR)
+          ->to_string;
+
+        push @{$self->parts}, $value;
+    }
     return $self;
 }
 
@@ -104,8 +116,8 @@ sub to_string {
     for my $part (@{$self->parts}) {
 
         # *( pchar / "/" / "?" )
-        push @path, Mojo::ByteStream->new($part)
-          ->url_escape($Mojo::URL::PCHAR)
+        push @path,
+          Mojo::ByteStream->new($part)->url_escape($Mojo::URL::PCHAR)
           ->to_string;
     }
 

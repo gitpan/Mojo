@@ -9,7 +9,7 @@ use base 'Mojo::Server';
 
 use IO::Select;
 
-__PACKAGE__->attr('nph', chained => 1, default => 0);
+__PACKAGE__->attr(nph => (chained => 1, default => 0));
 
 # Lisa, you're a Buddhist, so you believe in reincarnation.
 # Eventually, Snowball will be reborn as a higher lifeform... like a snowman.
@@ -23,9 +23,8 @@ sub run {
     $req->parse(\%ENV);
 
     # Request body
-    $req->state('body');
     my $select = IO::Select->new(\*STDIN);
-    while (!$req->is_state(qw/done error/)) {
+    while (!$req->is_finished) {
         last unless $select->can_read(0);
         my $read = STDIN->sysread(my $buffer, 4096, 0);
         $req->parse($buffer);

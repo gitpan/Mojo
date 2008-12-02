@@ -34,7 +34,7 @@ my %UNRESERVED;
 # Well, I think the veal died of loneliness.
 sub new {
     my $self = shift->SUPER::new();
-    $self->{bytestream} = $_[0] if $_[0];
+    $self->{bytestream} = $_[0] if defined $_[0];
     return $self;
 }
 
@@ -68,7 +68,7 @@ sub camelize {
     my @words = split /_/, $self->{bytestream};
 
     # Case
-    @words = map { ucfirst } map { lc } @words;
+    @words = map {ucfirst} map {lc} @words;
 
     # Join
     $self->{bytestream} = join '', @words;
@@ -78,22 +78,23 @@ sub camelize {
 
 sub clone {
     my $self = shift;
-    return $self->new($self->{bytestream})
+    return $self->new($self->{bytestream});
 }
 
 sub decamelize {
     my $self = shift;
 
     # Shortcut
-    return $self if !defined $self->{bytestream}
-      || $self->{bytestream} !~ /^[A-Z]+/;
+    return $self
+      if !defined $self->{bytestream}
+          || $self->{bytestream} !~ /^[A-Z]+/;
 
     # Split
     my @words;
     push @words, $1 while ($self->{bytestream} =~ s/([A-Z]+[^A-Z]*)//);
 
     # Case
-    @words = map { lc } @words;
+    @words = map {lc} @words;
 
     # Join
     $self->{bytestream} = join '_', @words;
@@ -125,7 +126,7 @@ sub encode {
 
 sub length {
     my $self = shift;
-    $self->{bytestream} ||= '';
+    $self->{bytestream} = '' unless defined $self->{bytestream};
     return length $self->{bytestream};
 }
 
@@ -162,7 +163,7 @@ sub qp_encode {
 sub quote {
     my $self = shift;
 
-    $self->{bytestream} ||= '';
+    $self->{bytestream} = '' unless defined $self->{bytestream};
 
     # Escape
     $self->{bytestream} =~ s/([\"\\])/\\$1/g;
@@ -199,8 +200,7 @@ sub url_escape {
     my $pattern = shift || 'A-Za-z0-9\-\.\_\~';
 
     # Escape
-	$self->{bytestream}
-	  =~ s/([^$pattern])/sprintf('%%%02X',ord($1))/ge;
+    $self->{bytestream} =~ s/([^$pattern])/sprintf('%%%02X',ord($1))/ge;
 
     return $self;
 }

@@ -84,7 +84,7 @@ pattern. This can be used to factor out repetitive code.
 
 =head2 Bridges
 
-Sometimes it is neccessary to call multiple method after another (e.g.
+Sometimes it is necessary to call multiple method after another (e.g.
 authorization, data processing). That's what C<bridge> is for.
 
     # /blog
@@ -92,6 +92,8 @@ authorization, data processing). That's what C<bridge> is for.
       ->route('/blog')->to(action => 'list');
 
 C<Foo::auth> will be called before C<Foo::list>.
+If C<Foo:auth> does not return a true value, the chain will be broken and
+return without C<Foo::list> being called.
 
 =head2 Waypoints
 

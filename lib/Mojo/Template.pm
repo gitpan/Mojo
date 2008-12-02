@@ -12,15 +12,15 @@ use constant DEBUG => $ENV{MOJO_TEMPLATE_DEBUG} || 0;
 use Carp 'croak';
 use IO::File;
 
-__PACKAGE__->attr('code'           , chained => 1, default => '');
-__PACKAGE__->attr('comment_mark'   , chained => 1, default => '#');
-__PACKAGE__->attr('compiled'       , chained => 1);
-__PACKAGE__->attr('expression_mark', chained => 1, default => '=');
-__PACKAGE__->attr('line_start'     , chained => 1, default => '%');
-__PACKAGE__->attr('template'       , chained => 1, default => '');
-__PACKAGE__->attr('tree'           , chained => 1, default => sub { [] });
-__PACKAGE__->attr('tag_start'      , chained => 1, default => '<%');
-__PACKAGE__->attr('tag_end'        , chained => 1, default => '%>');
+__PACKAGE__->attr(code            => (chained => 1, default => ''));
+__PACKAGE__->attr(comment_mark    => (chained => 1, default => '#'));
+__PACKAGE__->attr(compiled        => (chained => 1));
+__PACKAGE__->attr(expression_mark => (chained => 1, default => '='));
+__PACKAGE__->attr(line_start      => (chained => 1, default => '%'));
+__PACKAGE__->attr(template        => (chained => 1, default => ''));
+__PACKAGE__->attr(tree => (chained => 1, default => sub { [] }));
+__PACKAGE__->attr(tag_start => (chained => 1, default => '<%'));
+__PACKAGE__->attr(tag_end   => (chained => 1, default => '%>'));
 
 sub build {
     my $self = shift;
@@ -62,7 +62,7 @@ sub build {
 
     # Wrap
     $lines[0] ||= '';
-    $lines[0]   = q/sub { my $_MOJO = '';/ . $lines[0];
+    $lines[0] = q/sub { my $_MOJO = '';/ . $lines[0];
     $lines[-1] .= q/return $_MOJO; };/;
 
     $self->code(join "\n", @lines);
@@ -91,7 +91,8 @@ sub compile {
 }
 
 sub interpret {
-    my $self = shift;
+    my $self   = shift;
+    my $output = shift;
 
     # Shortcut
     my $compiled = $self->compiled;
@@ -104,10 +105,13 @@ sub interpret {
     };
 
     # Interpret
-    my $result = eval { $compiled->(@_) };
-    return $self->_error($@) if $@;
+    $$output = eval { $compiled->(@_) };
+    if ($@) {
+        $$output = $self->_error($@);
+        return 0;
+    }
 
-    return $result;
+    return 1;
 }
 
 # I am so smart! I am so smart! S-M-R-T! I mean S-M-A-R-T...
@@ -126,7 +130,7 @@ sub parse {
     my $expr_mark  = quotemeta $self->expression_mark;
 
     # Tokenize
-    my $state = 'text';
+    my $state                = 'text';
     my $multiline_expression = 0;
     for my $line (split /\n/, $tmpl) {
 
@@ -172,7 +176,8 @@ sub parse {
 
         # Mixed line
         my @token;
-        for my $token (split /
+        for my $token (
+            split /
             (
                 $tag_start$expr_mark   # Expression
             |
@@ -182,14 +187,16 @@ sub parse {
             |
                 $tag_end               # End
             )
-        /x, $line) {
+        /x, $line
+          )
+        {
 
             # Garbage
             next unless $token;
 
             # End
             if ($token =~ /^$tag_end$/) {
-                $state = 'text';
+                $state                = 'text';
                 $multiline_expression = 0;
             }
 
@@ -227,7 +234,7 @@ sub parse {
 
 sub render {
     my $self = shift;
-    my $tmpl  = shift;
+    my $tmpl = shift;
 
     # Parse
     $self->parse($tmpl);
@@ -261,15 +268,16 @@ sub render_file {
 }
 
 sub render_file_to_file {
-    my $self = shift;
+    my $self  = shift;
     my $spath = shift;
     my $tpath = shift;
 
     # Render
-    my $result = $self->render_file($spath, @_);
+    my $output;
+    return 0 unless $self->render_file($spath, \$output, @_);
 
     # Write to file
-    return $self->_write_file($tpath, $result);
+    return $self->_write_file($tpath, $output);
 }
 
 sub render_to_file {
@@ -278,16 +286,17 @@ sub render_to_file {
     my $path = shift;
 
     # Render
-    my $result = $self->render($tmpl, @_);
+    my $output;
+    return 0 unless $self->render($tmpl, \$output, @_);
 
     # Write to file
-    return $self->_write_file($path, $result);
+    return $self->_write_file($path, $output);
 }
 
 sub _context {
     my ($self, $text, $line) = @_;
 
-    $line     -= 1;
+    $line -= 1;
     my $nline  = $line + 1;
     my $pline  = $line - 1;
     my $nnline = $line + 2;
@@ -347,12 +356,12 @@ sub _error {
 }
 
 sub _write_file {
-    my ($self, $path, $result) = @_;
+    my ($self, $path, $output) = @_;
 
     # Write to file
     my $file = IO::File->new;
-    $file->open("> $path") or croak "Can't open file '$path': $!";
-    $file->syswrite($result) or croak "Can't write to file '$path': $!";
+    $file->open("> $path")   or croak "Can't open file '$path': $!";
+    $file->syswrite($output) or croak "Can't write to file '$path': $!";
     return 1;
 }
 
@@ -369,7 +378,8 @@ Mojo::Template - Perlish Templates!
     my $mt = Mojo::Template->new;
 
     # Simple
-    print $mt->render(<<'EOF');
+    my $output;
+    $mt->render(<<'EOF', \$output);
     <html>
       <head></head>
       <body>
@@ -377,9 +387,11 @@ Mojo::Template - Perlish Templates!
       </body>
     </html>
     EOF
+    print $output;
 
     # More complicated
-    print $mt->render(<<'EOF', 23, 'foo bar');
+    my $output;
+    $mt->render(<<'EOF', \$output, 23, 'foo bar');
     %= 5 * 5
     % my ($number, $text) = @_;
     test 123
@@ -388,6 +400,7 @@ Mojo::Template - Perlish Templates!
     * some text <%= $i++ %>
     % }
     EOF
+    print $output;
 
 =head1 DESCRIPTION
 
@@ -414,14 +427,14 @@ That means you can access arguments simply via C<@_>.
     test 123 <%= $foo %>
 
 Note that you can't escape L<Mojo::Template> tags, instead we just replace
-them if neccessary.
+them if necessary.
 
     my $mt = Mojo::Template->new;
     $mt->line_start('@@');
     $mt->tag_start('[@@');
     $mt->tag_end('@@]');
     $mt->expression_mark('&');
-    $mt->render(<<'EOF', 23);
+    $mt->render(<<'EOF', \$output, 23);
     @@ my $i = shift;
     <% no code just text [@@& $i @@]
     EOF
@@ -470,7 +483,8 @@ build a wrapper around it.
     $mt->template($template);
     $mt->code($code);
     $mt->compile;
-    my $result = $mt->interpret(@arguments);
+    my $output;
+    $mt->interpret(\$output, @arguments);
 
 =head1 ATTRIBUTES
 
@@ -533,8 +547,8 @@ following new ones.
 
 =head2 C<interpret>
 
-    my $result = $mt->interpret;
-    my $result = $mt->interpret(@arguments);
+    my $success = $mt->interpret;
+    my $success = $mt->interpret(\$output, @arguments);
 
 =head2 C<parse>
 
@@ -542,26 +556,26 @@ following new ones.
 
 =head2 C<render>
 
-    my $result = $mt->render($template);
-    my $result = $mt->render($template, @arguments);
+    my $success = $mt->render($template);
+    my $success = $mt->render($template, \$output, @arguments);
 
 =head2 C<render_file>
 
-    my $result = $mt->render_file($template_file);
-    my $result = $mt->render_file($template_file, @arguments);
+    my $success = $mt->render_file($template_file);
+    my $success = $mt->render_file($template_file, \$result, @arguments);
 
 =head2 C<render_file_to_file>
 
-    my $result = $mt->render_file_to_file($template_file, $result_file);
-    my $result = $mt->render_file_to_file(
-        $template_file, $result_file, @arguments
+    my $success = $mt->render_file_to_file($template_file, $output_file);
+    my $success = $mt->render_file_to_file(
+        $template_file, $output_file, @arguments
     );
 
 =head2 C<render_to_file>
 
-    my $result = $mt->render_to_file($template, $result_file);
-    my $result = $mt->render_to_file(
-        $template, $result_file, @arguments
+    my $success = $mt->render_to_file($template, $output_file);
+    my $success = $mt->render_to_file(
+        $template, $output_file, @arguments
     );
 
 =cut

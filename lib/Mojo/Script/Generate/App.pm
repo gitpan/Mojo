@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-__PACKAGE__->attr('description', chained => 1, default => <<'EOF');
+__PACKAGE__->attr(description => (chained => 1, default => <<'EOF'));
 * Generate application directory structure. *
 Takes a name as option, by default MyMojoApp will be used.
     generate app TestApp
@@ -32,6 +32,9 @@ sub run {
 
     # Test
     $self->render_to_rel_file('test', "$name/t/basic.t", $class);
+
+    # Log
+    $self->create_rel_dir("$name/log");
 }
 
 1;

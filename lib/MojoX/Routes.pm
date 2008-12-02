@@ -13,12 +13,14 @@ use MojoX::Routes::Pattern;
 
 use constant DEBUG => $ENV{MOJOX_ROUTES_DEBUG} || 0;
 
-__PACKAGE__->attr([qw/block inline name/], chained => 1);
-__PACKAGE__->attr('children', chained => 1, default => sub { [] });
-__PACKAGE__->attr('parent', chained => 1, weak => 1);
-__PACKAGE__->attr('pattern',
-    chained => 1,
-    default => sub { MojoX::Routes::Pattern->new }
+__PACKAGE__->attr([qw/block inline name/] => (chained => 1));
+__PACKAGE__->attr(children => (chained => 1, default => sub { [] }));
+__PACKAGE__->attr(parent => (chained => 1, weak => 1));
+__PACKAGE__->attr(
+    pattern => (
+        chained => 1,
+        default => sub { MojoX::Routes::Pattern->new }
+    )
 );
 
 sub new {
@@ -48,7 +50,7 @@ sub match {
       unless ref $match && $match->isa('MojoX::Routes::Match');
 
     # Path
-    my $path = $match->path;
+    my $path      = $match->path;
     my $substring = $self->_shape(\$path);
 
     # Debug
@@ -76,6 +78,7 @@ sub match {
     }
 
     # Match children
+    my $snapshot = [@{$match->stack}];
     for my $child (@{$self->children}) {
 
         # Match
@@ -86,6 +89,9 @@ sub match {
 
         # Reset path
         $match->path($path);
+
+        # Reset stack
+        $match->stack($snapshot);
     }
 
     $match->endpoint($self) if $self->is_endpoint;
@@ -145,6 +151,10 @@ sub url_for {
     # Path prefix
     my $path = $url->path->to_string;
     $path = $self->pattern->render($values) . $path;
+
+    # Make sure there is always a root
+    $path = '/' if !$path && !$self->parent;
+
     $url->path->parse($path);
 
     $self->parent->url_for($url, $values) if $self->parent;

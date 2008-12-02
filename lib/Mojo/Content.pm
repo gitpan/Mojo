@@ -17,29 +17,31 @@ use Mojo::Headers;
 
 use constant MAX_MEMORY_SIZE => $ENV{MOJO_MAX_MEMORY_SIZE} || 10240;
 
-__PACKAGE__->attr([qw/buffer filter_buffer/],
-    chained => 1,
-    default => sub { Mojo::Buffer->new }
+__PACKAGE__->attr(
+    [qw/buffer filter_buffer/] => (
+        chained => 1,
+        default => sub { Mojo::Buffer->new }
+    )
 );
-__PACKAGE__->attr([qw/
-    build_body_cb
-    build_headers_cb filter
-    builder_progress_cb
-/], chained => 1 );
-__PACKAGE__->attr('file',
-    chained => 1,
-    default => sub { Mojo::File::Memory->new }
+__PACKAGE__->attr([qw/body_cb filter builder_progress_cb/] => (chained => 1));
+__PACKAGE__->attr(
+    file => (
+        chained => 1,
+        default => sub { Mojo::File::Memory->new }
+    )
 );
-__PACKAGE__->attr('headers',
-    chained => 1,
-    default => sub { Mojo::Headers->new }
+__PACKAGE__->attr(
+    headers => (
+        chained => 1,
+        default => sub { Mojo::Headers->new }
+    )
 );
-__PACKAGE__->attr('raw_header_length', chained => 1, default => 0);
+__PACKAGE__->attr(raw_header_length => (chained => 1, default => 0));
 
 sub build_body {
     my $self = shift;
 
-    my $body = '';
+    my $body   = '';
     my $offset = 0;
     while (1) {
         my $chunk = $self->get_body_chunk($offset);
@@ -62,7 +64,7 @@ sub build_headers {
     my $self = shift;
 
     my $headers = '';
-    my $offset = 0;
+    my $offset  = 0;
     while (1) {
         my $chunk = $self->get_header_chunk($offset);
 
@@ -91,10 +93,11 @@ sub get_body_chunk {
     my ($self, $offset) = @_;
 
     # Progress
-    $self->builder_progress_cb->($self) if $self->builder_progress_cb;
+    $self->builder_progress_cb->($self, 'body', $offset)
+      if $self->builder_progress_cb;
 
     # Body generator
-    return $self->build_body_cb->($self, $offset) if $self->build_body_cb;
+    return $self->body_cb->($self, $offset) if $self->body_cb;
 
     # Normal content
     return $self->file->get_chunk($offset);
@@ -102,10 +105,6 @@ sub get_body_chunk {
 
 sub get_header_chunk {
     my ($self, $offset) = @_;
-
-    # Header generator
-    return $self->build_headers_cb->($self, $offset)
-      if $self->build_headers_cb;
 
     # Normal headers
     my $copy = $self->_build_headers;
@@ -135,9 +134,9 @@ sub parse {
 
     # Parser started
     if ($self->is_state('start')) {
-        my $length = length($self->filter_buffer->{buffer});
-        my $raw_length = $self->filter_buffer->raw_length;
-        my $raw_header_length =  $raw_length - $length;
+        my $length            = length($self->filter_buffer->{buffer});
+        my $raw_length        = $self->filter_buffer->raw_length;
+        my $raw_header_length = $raw_length - $length;
         $self->raw_header_length($raw_header_length);
         $self->state('headers');
     }
@@ -152,11 +151,13 @@ sub parse {
     if ($self->is_chunked && !$self->is_state('headers')) {
 
         # Initialize filter
-        $self->filter(Mojo::Filter::Chunked->new({
-            headers       => $self->headers,
-            input_buffer  => $self->filter_buffer,
-            output_buffer => $self->buffer
-        })) unless $self->filter;
+        $self->filter(
+            Mojo::Filter::Chunked->new(
+                headers       => $self->headers,
+                input_buffer  => $self->filter_buffer,
+                output_buffer => $self->buffer
+            )
+        ) unless $self->filter;
 
         # Filter
         $self->filter->parse;
@@ -189,14 +190,14 @@ sub parse {
 }
 
 sub raw_body_length {
-    my $self = shift;
-    my $length = $self->filter_buffer->raw_length;
+    my $self          = shift;
+    my $length        = $self->filter_buffer->raw_length;
     my $header_length = $self->raw_header_length;
     return $length - $header_length;
 }
 
 sub _build_headers {
-    my $self = shift;
+    my $self    = shift;
     my $headers = $self->headers->to_string;
     return "\x0d\x0a" unless $headers;
     return "$headers\x0d\x0a\x0d\x0a";
@@ -204,18 +205,21 @@ sub _build_headers {
 
 sub _parse_headers {
     my $self = shift;
+
     $self->headers->buffer($self->filter_buffer);
     $self->headers->parse;
-    my $length = length($self->headers->buffer->{buffer});
-    my $raw_length = $self->headers->buffer->raw_length;
-    my $raw_header_length =  $raw_length - $length;
+
+    my $length            = length($self->headers->buffer->{buffer});
+    my $raw_length        = $self->headers->buffer->raw_length;
+    my $raw_header_length = $raw_length - $length;
+
     $self->raw_header_length($raw_header_length);
 
     # Make sure we don't waste memory
     if ($self->file->isa('Mojo::File::Memory')) {
         $self->file(Mojo::File->new)
           if !$self->headers->content_length
-          || $self->headers->content_length > MAX_MEMORY_SIZE;
+              || $self->headers->content_length > MAX_MEMORY_SIZE;
     }
 
     $self->state('body') if $self->headers->is_done;
@@ -244,21 +248,12 @@ L<Mojo::Content> is a container for HTTP content.
 L<Mojo::Content> inherits all attributes from L<Mojo::Stateful> and
 implements the following new ones.
 
-=head2 C<body_length>
+=head2 C<body_cb>
 
-    my $body_length = $content->body_length;
-
-=head2 C<buffer>
-
-    my $buffer = $content->buffer;
-    $content   = $content->buffer(Mojo::Buffer->new);
-
-=head2 C<build_body_cb>
-
-    my $cb = $content->build_body_cb;
+    my $cb = $content->body_cb;
 
     $counter = 1;
-    $content = $content->build_body_cb(sub {
+    $content = $content->body_cb(sub {
         my $self  = shift;
         my $chunk = '';
         $chunk    = "hello world!" if $counter == 1;
@@ -267,15 +262,14 @@ implements the following new ones.
         return $chunk;
     });
 
-=head2 C<build_headers_cb>
+=head2 C<body_length>
 
-    my $cb = $content->build_headers_cb;
+    my $body_length = $content->body_length;
 
-    $content = $content->build_headers_cb(sub {
-        my $h = Mojo::Headers->new;
-        $h->content_type('text/plain');
-        return $h->to_string;
-    });
+=head2 C<buffer>
+
+    my $buffer = $content->buffer;
+    $content   = $content->buffer(Mojo::Buffer->new);
 
 =head2 C<builder_progress_cb>
 

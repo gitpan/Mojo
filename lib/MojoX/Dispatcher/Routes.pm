@@ -10,53 +10,114 @@ use base 'MojoX::Routes';
 use Mojo::ByteStream;
 use Mojo::Loader;
 
-use constant DEBUG => $ENV{MOJOX_ROUTES_DEBUG} || 0;
-
-__PACKAGE__->attr('controllers', chained => 1, default => sub { {} });
-__PACKAGE__->attr('namespace',   chained => 1);
+__PACKAGE__->attr(
+    disallow => (
+        chained => 1,
+        default => sub { [qw/new attr render req res stash/] }
+    )
+);
+__PACKAGE__->attr(namespace => (chained => 1));
 
 # Hey. What kind of party is this? There's no booze and only one hooker.
 sub dispatch {
-    my ($self, $c) = @_;
+    my ($self, $c, $match) = @_;
 
-    my $match = $self->match($c->tx);
+    $match ||= $self->match($c->tx);
     $c->match($match);
 
     # Shortcut
     return 0 unless $match;
 
+    # Initialize stash with captures
+    $c->stash({%{$match->captures}});
+
+    # Prepare disallow
+    unless ($self->{_disallow}) {
+        $self->{_disallow} = {};
+        $self->{_disallow}->{$_}++ for @{$self->disallow};
+    }
+
     # Walk the stack
     my $stack = $match->stack;
     for my $field (@$stack) {
 
-        my $controller = $field->{controller};
-        my $action     = $field->{action};
+        # Method
+        my $method = $field->{method};
+        $method ||= $field->{action};
 
-        my $class = Mojo::ByteStream->new($controller)->camelize;
-        $class    = $self->namespace . "::$class";
+        # Shortcut for disallowed methods
+        next if $self->{_disallow}->{$method};
+        next if index($method, '_') == 0;
+
+        # Class
+        my $class = $field->{class};
+        my $controller = $field->{controller} || '';
+        unless ($class) {
+            my @class;
+            for my $part (split /-/, $controller) {
+
+                # Junk
+                next unless $part;
+
+                # Camelize
+                push @class, Mojo::ByteStream->new($part)->camelize;
+            }
+            $class = join '::', @class;
+        }
+
+        # Format
+        my $namespace = $field->{namespace} || $self->namespace;
+        $class = "${namespace}::$class";
 
         # Debug
-        warn "-> $controller($class) :: $action\n" if DEBUG;
+        $c->app->log->debug(
+            qq/Dispatching "$method" in "$controller($class)"/);
 
-        # Shortcut
-        next unless $class =~ /^[a-zA-Z0-9_:]+$/;
+        # Shortcut for invalid class and method
+        next
+          unless $class =~ /^[a-zA-Z0-9_:]+$/
+              && $method =~ /^[a-zA-Z0-9_]+$/;
 
-        # Cache
-        my $instance = $self->controllers->{$class};
+        # Captures
+        $c->match->captures($field);
 
+        # Load
+        $self->{_loaded} ||= {};
         eval {
-            $instance = $self->controllers->{$class}
-              = Mojo::Loader->load_build($class) unless $instance;
+            Mojo::Loader->new->load($class);
+            $self->{_loaded}->{$class}++;
+        } unless $self->{_loaded}->{$class};
 
-            # Run action
-            $instance->$action($c);
-        };
+        # Load error
         if ($@) {
-            warn "Dispatch error (propably harmless):\n$@";
+            $c->app->log->debug(
+                qq/Couldn't load controller class "$class":\n$@/);
             return 0;
         }
+
+        # Dispatch
+        my $done;
+        eval {
+            die "$class is not a controller"
+              unless $class->isa('MojoX::Dispatcher::Routes::Controller');
+            $done = $class->new(ctx => $c)->$method($c);
+        };
+
+        # Controller error
+        if ($@) {
+            $c->app->log->debug(
+                qq/Controller error in "${class}::$method":\n$@/);
+            return 0;
+        }
+
+        # Break the chain
+        last unless $done;
     }
 
+    # No stack, fail
+    return 0 unless @$stack;
+
+    # All seems ok
     return 1;
 }
 
@@ -82,10 +143,12 @@ L<MojoX::Dispatcher::Routes> is a dispatcher based on L<MojoX::Routes>.
 L<MojoX::Dispatcher::Routes> inherits all attributes from L<MojoX::Routes>
 and implements the follwing the ones.
 
-=head2 C<controllers>
+=head2 C<disallow>
 
-    my $controllers = $dispatcher->controllers;
-    $dispatcher     = $dispatcher->controllers({ ... });
+    my $disallow = $dispatcher->disallow;
+    $dispatcher  = $dispatcher->disallow(
+        [qw/new attr ctx render req res stash/]
+    );
 
 =head2 C<namespace>
 
@@ -101,6 +164,10 @@ implements the follwing the ones.
 
     my $success = $dispatcher->dispatch(
         MojoX::Dispatcher::Routes::Context->new
+    );
+    my $success = $dispatcher->dispatch(
+        MojoX::Dispatcher::Routes::Context->new,
+        MojoX::Routes::Match->new
     );
 
 =cut

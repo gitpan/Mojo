@@ -7,29 +7,38 @@ use warnings;
 
 use base 'MojoX::Dispatcher::Routes::Context';
 
-__PACKAGE__->attr('app', chained => 1, weak => 1);
-__PACKAGE__->attr('stash', chained => 1, default => sub { {} });
-
 # Space: It seems to go on and on forever...
 # but then you get to the end and a gorilla starts throwing barrels at you.
 sub render {
-    my $self    = shift;
+    my $self = shift;
 
-    my $options = ref $_[0] ? $_[0] : {@_};
+    # Merge args with stash
+    my $args = ref $_[0] ? $_[0] : {@_};
+    local $self->{stash} = {%{$self->stash}, %$args};
 
-    my $controller = $options->{controller}
-      || $self->match->captures->{controller};
-    my $action = $options->{action} || $self->match->captures->{action};
+    # Template
+    unless ($self->stash->{template}) {
 
-    $options->{template} ||= join '/', $controller, $action;
+        # Default template
+        my $controller = $self->stash->{controller};
+        my $action     = $self->stash->{action};
 
-    return $self->app->renderer->render($self, $options);
+        $self->stash->{template} = join '/', split(/-/, $controller), $action;
+    }
+
+    # Render
+    return $self->app->renderer->render($self);
 }
 
 sub url_for {
     my $self = shift;
-    my $url = $self->match->url_for(@_);
+    my $url  = $self->match->url_for(@_);
     $url->base($self->tx->req->url->base->clone);
+
+    # Fix paths
+    unshift @{$url->path->parts}, @{$url->base->path->parts};
+    $url->base->path->parts([]);
+
     return $url;
 }
 
@@ -53,15 +62,7 @@ L<Mojolicous::Context> is a context container.
 =head1 ATTRIBUTES
 
 L<Mojolicious::Context> inherits all attributes from
-L<MojoX::Dispatcher::Routes::Context> and implements the following new ones.
-
-=head2 C<app>
-
-    my $app = $c->app;
-
-=head2 C<stash>
-
-    my $stash = $c->stash;
+L<MojoX::Dispatcher::Routes::Context>.
 
 =head1 METHODS
 

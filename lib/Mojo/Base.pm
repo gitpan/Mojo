@@ -21,7 +21,8 @@ sub new {
 }
 
 # Performance is very important for something as often used as accessors,
-# so we optimize them by compiling our own code
+# so we optimize them by compiling our own code, don't be scared, we have
+# tests for every single case
 sub attr {
     my $class = shift;
     my $attrs = shift;
@@ -29,20 +30,24 @@ sub attr {
     # Shortcut
     return unless $class && $attrs;
 
-    # Check options
-    my $options;
+    # Check arguments
+    my $args;
     if (exists $_[1]) {
-        my %options = (@_);
-        $options = \%options;
+        my %args = (@_);
+        $args = \%args;
     }
-    else { $options = $_[0] }
-    $options ||= {};
+    else { $args = $_[0] }
+    $args ||= {};
 
-    my $chained = delete $options->{chained};
-    my $default = delete $options->{default};
-    my $weak    = delete $options->{weak};
+    my $chained = delete $args->{chained};
+    my $default = delete $args->{default};
+    my $weak    = delete $args->{weak};
 
-    undef $options;
+    undef $args;
+
+    # Check default
+    Carp::croak('Default has to be a code reference or constant value')
+      if ref $default && ref $default ne 'CODE';
 
     # Allow symbolic references
     no strict 'refs';
@@ -62,9 +67,10 @@ sub attr {
         unless ($ENV{MOJO_BASE_OPTIMIZE}) {
 
             # Check invocant
-            $code .= "${ws}Carp::croak(\'";
-            $code .= 'Attribute has to be called on an object, not a class';
-            $code .= "')\n  ${ws}unless ref \$_[0];\n";
+            $code .= "${ws}Carp::confess(q[";
+            $code
+              .= qq/Attribute "$attr" has to be called on an object, not a class/;
+            $code .= "])\n  ${ws}unless ref \$_[0];\n";
         }
 
         # No value
@@ -82,7 +88,8 @@ sub attr {
 
             # Return default value
             $code .= "$ws${ws}return \$_[0]->{'$attr'} = ";
-            $code .= ref $default eq 'CODE'
+            $code .=
+              ref $default eq 'CODE'
               ? '$default->($_[0])'
               : '$default';
             $code .= ";\n";
@@ -205,7 +212,8 @@ Currently there are three options supported.
 
     chained: Whenever you call an attribute with arguments the instance
              is returned instead of the value.
-    default: Default value for the attribute, can also be a coderef.
+    default: Default value for the attribute, can be a coderef or constant
+             value. (Not a normal reference!)
              Note that the default value is "lazy", which means it only
              gets assigned to the instance when the attribute has been
              called.

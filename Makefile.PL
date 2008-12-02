@@ -14,12 +14,14 @@ use ExtUtils::MakeMaker;
 # We only use core modules, so you shouldn't have to install anything besides
 # Perl 5.8!
 WriteMakefile(
-    NAME          => 'Mojo',
-    VERSION_FROM  => 'lib/Mojo.pm',
-    AUTHOR        => 'Sebastian Riedel <sri@cpan.org>',
-    LICENSE       => 'perl',
-    EXE_FILES     => ['bin/mojo', 'bin/mojolicious'],
-    PREREQ_PM     => {
+    NAME         => 'Mojo',
+    VERSION_FROM => 'lib/Mojo.pm',
+    AUTHOR       => 'Sebastian Riedel <sri@cpan.org>',
+    ($ExtUtils::MakeMaker::VERSION >= 6.3002
+        ? ('LICENSE' => 'perl')
+        : ()),
+    EXE_FILES => ['bin/mojo', 'bin/mojolicious'],
+    PREREQ_PM => {
         'Carp'                  => 0,
         'Cwd'                   => 0,
         'Digest::MD5'           => 0,
@@ -41,7 +43,15 @@ WriteMakefile(
         'Test::Harness'         => 0,
         'Test::More'            => 0
     },
-    test          => {
-        TESTS => 't/*.t t/*/*.t t/*/*/*.t'
-    }
+    test => {TESTS => 't/*.t t/*/*.t t/*/*/*.t'}
 );
+
+# Devel::Cover support
+sub MY::postamble {
+    qq/
+testcover :
+\t cover -delete && \\
+   HARNESS_PERL_SWITCHES=-MDevel::Cover \$(MAKE) test && \\
+   cover
+/
+}

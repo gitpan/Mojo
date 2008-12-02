@@ -10,11 +10,13 @@ use base 'Mojo::Script';
 use Mojo::ByteStream;
 use Mojo::Loader;
 
-__PACKAGE__->attr([qw/base namespace/],
-    chained => 1,
-    default => 'Mojo::Script'
+__PACKAGE__->attr(
+    [qw/base namespace/] => (
+        chained => 1,
+        default => 'Mojo::Script'
+    )
 );
-__PACKAGE__->attr('message', chained => 1, default => <<'EOF');
+__PACKAGE__->attr(message => (chained => 1, default => <<'EOF'));
 Welcome to the Mojo Framework!
 
 HINT: In case you don't know what you are doing here try the manual!
@@ -35,20 +37,15 @@ sub run {
 
     # Run script
     if ($script) {
-        my $module = $self->namespace . '::'
-          . Mojo::ByteStream->new($script)->camelize;
-        Mojo::Loader->new
-          ->base($self->base)
-          ->load_build($module)
-          ->run(@args);
+        my $module =
+          $self->namespace . '::' . Mojo::ByteStream->new($script)->camelize;
+        Mojo::Loader->new->base($self->base)->load_build($module)->run(@args);
         return $self;
     }
 
     # Load scripts
-    my $instances = Mojo::Loader->new($self->namespace)
-      ->base($self->base)
-      ->load
-      ->build;
+    my $instances =
+      Mojo::Loader->new($self->namespace)->base($self->base)->load->build;
 
     # Print overview
     print $self->message;
@@ -57,7 +54,7 @@ sub run {
     foreach my $instance (@$instances) {
 
         # Generate name
-        my $module = ref $instance;
+        my $module    = ref $instance;
         my $namespace = $self->namespace;
         $module =~ s/^$namespace\:\://;
         my $name = Mojo::ByteStream->new($module)->decamelize;
@@ -91,7 +88,7 @@ framework.
 
 =head1 ATTRIBUTES
 
-L<Mojo::Scrips> inherits all attributes from L<Mojo::Script> and implements
+L<Mojo::Scripts> inherits all attributes from L<Mojo::Script> and implements
 the following new ones.
 
 =head2 C<base>
@@ -111,7 +108,7 @@ the following new ones.
 
 =head1 METHODS
 
-L<Mojo::Scrips> inherits all methods from L<Mojo::Script> and implements the
+L<Mojo::Scripts> inherits all methods from L<Mojo::Script> and implements the
 following new ones.
 
 =head2 C<run>

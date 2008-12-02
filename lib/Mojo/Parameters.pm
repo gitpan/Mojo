@@ -11,8 +11,8 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 use Mojo::ByteStream;
 use Mojo::URL;
 
-__PACKAGE__->attr('pair_separator', chained => 1, default => '&');
-__PACKAGE__->attr('params',         chained => 1, default => sub { [] });
+__PACKAGE__->attr(pair_separator => (chained => 1, default => '&'));
+__PACKAGE__->attr(params => (chained => 1, default => sub { [] }));
 
 # Yeah, Moe, that team sure did suck last night. They just plain sucked!
 # I've seen teams suck before,
@@ -23,7 +23,7 @@ sub new {
     my $self = shift->SUPER::new();
 
     # Hash/Array
-    if ($_[1]) { $self->append(@_) }
+    if (defined $_[1]) { $self->append(@_) }
 
     # String
     else { $self->parse(@_) }
@@ -32,10 +32,22 @@ sub new {
 }
 
 sub append {
-    my $self   = shift;
+    my $self = shift;
 
-    # Append
-    push @{$self->params}, @_;
+    for (@_) {
+        my $value = "$_";
+
+        # We replace whitespace with "+"
+        $value =~ s/\ /\+/g;
+
+        # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
+        $value =
+          Mojo::ByteStream->new($value)->url_escape($Mojo::URL::PARAM)
+          ->to_string;
+
+        # Append
+        push @{$self->params}, $value;
+    }
 
     return $self;
 }
@@ -43,6 +55,7 @@ sub append {
 sub clone {
     my $self  = shift;
     my $clone = Mojo::Parameters->new;
+    $clone->pair_separator($self->pair_separator);
     $clone->params([@{$self->params}]);
     return $clone;
 }
@@ -56,6 +69,12 @@ sub merge {
 sub param {
     my $self = shift;
     my $name = shift;
+
+    # We replace whitespace with "+"
+    $name =~ s/\ /\+/g;
+
+    # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
+    $name = Mojo::ByteStream->new($name)->url_escape($Mojo::URL::PARAM);
 
     # Cleanup
     $self->remove($name) if defined $_[0];
@@ -74,31 +93,39 @@ sub param {
 
     # Unescape
     for (my $i = 0; $i <= $#values; $i++) {
-        $values[$i] = Mojo::ByteStream->new($values[$i])
-          ->url_unescape
-          ->to_string;
+
+        # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
+        $values[$i] =
+          Mojo::ByteStream->new($values[$i])->url_unescape->to_string;
+
+        # We replace "+" with whitespace
+        $values[$i] =~ s/\+/\ /g if $values[$i];
     }
 
-    return defined $values[1] ? \@values : $values[0];
+    return wantarray ? @values : $values[0];
 }
 
 sub parse {
-    my $self = shift;
+    my $self   = shift;
+    my $string = shift;
 
     # Shortcut
-    return $self unless defined $_[0];
+    return $self unless defined $string;
+
+    # Clear
+    $self->params([]);
 
     # Detect query string without key/value pairs
-    if ($_[0] !~ /\=/) {
-        $self->params([$_[0], undef]);
+    if ($string !~ /\=/) {
+        $self->params([$string, undef]);
         return $self;
     }
 
-    # W3C suggests to also accept ";" as a separator
-    for my $pair (split /[\&\;]+/, $_[0]) {
+    # Detect pair separator for reconstruction
+    $self->pair_separator(';') if $string =~ /\;/ && $string !~ /\&/;
 
-        # We replace "+" with whitespace
-        $pair =~ s/\+/\ /g;
+    # W3C suggests to also accept ";" as a separator
+    for my $pair (split /[\&\;]+/, $string) {
 
         $pair =~ /^([^\=]*)(?:=(.*))?$/;
 
@@ -114,11 +141,23 @@ sub parse {
 sub remove {
     my ($self, $name) = @_;
 
+    # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
+    $name = Mojo::ByteStream->new($name)->url_escape($Mojo::URL::PARAM);
+
+    # We replace whitespace with "+"
+    $name =~ s/\ /\+/g;
+
     # Remove
     my $params = $self->params;
-    for (my $i = 0; $i < @$params; $i += 2) {
-        splice @$params, $i, 2 if $params->[$i] eq $name;
+    for (my $i = 0; $i < @$params;) {
+        if ($params->[$i] eq $name) {
+            splice @$params, $i, 2;
+        }
+        else {
+            $i += 2;
+        }
     }
+    $self->params($params);
 
     return $self;
 }
@@ -136,6 +175,10 @@ sub to_hash {
         # Unescape
         $name  = Mojo::ByteStream->new($name)->url_unescape->to_string;
         $value = Mojo::ByteStream->new($value)->url_unescape->to_string;
+
+        # We replace "+" with whitepsace
+        $name =~ s/\+/\ /g;
+        $value =~ s/\+/\ /g if $value;
 
         # Array
         if (exists $params{$name}) {
@@ -162,10 +205,10 @@ sub to_string {
     my @params;
     for (my $i = 0; $i < @$params; $i += 2) {
         my $name  = $params->[$i];
-        my $value = $params->[$i + 1] || undef;
+        my $value = $params->[$i + 1];
 
         # We replace whitespace with "+"
-        $name  =~ s/\ /\+/g;
+        $name =~ s/\ /\+/g;
 
         # Value is optional
         if (defined $value) {
@@ -174,20 +217,20 @@ sub to_string {
             $value =~ s/\ /\+/g;
 
             # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
-            $value = Mojo::ByteStream->new($value)
-              ->url_escape($Mojo::URL::PARAM);
+            $value =
+              Mojo::ByteStream->new($value)->url_escape($Mojo::URL::PARAM);
 
             # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
-            $name = Mojo::ByteStream->new($name)
-              ->url_escape($Mojo::URL::PARAM);
+            $name =
+              Mojo::ByteStream->new($name)->url_escape($Mojo::URL::PARAM);
         }
 
         # No value
         else {
 
             # *( pchar / "/" / "?" )
-            $name = Mojo::ByteStream->new($name)
-              ->url_escape($Mojo::URL::PCHAR);
+            $name =
+              Mojo::ByteStream->new($name)->url_escape($Mojo::URL::PCHAR);
         }
 
         push @params, defined $value ? "$name=$value" : "$name";
@@ -253,6 +296,7 @@ the following new ones.
 =head2 C<param>
 
     my $foo = $params->param('foo');
+    my @foo = $params->param('foo');
     my $foo = $params->param(foo => 'ba;r');
 
 =head2 C<parse>

@@ -11,15 +11,14 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 use Carp;
 use Mojo::Date;
 
-__PACKAGE__->attr([qw/comment domain name path secure value version/],
-    chained => 1
-);
+__PACKAGE__->attr(
+    [qw/comment domain name path secure value version/] => (chained => 1));
 
 # My Homer is not a communist.
 # He may be a liar, a pig, an idiot, a communist, but he is not a porn star.
 sub expires {
     my ($self, $expires) = @_;
-    if ($expires) {
+    if (defined $expires) {
         $self->{expires} = Mojo::Date->parse($expires) unless ref $expires;
     }
     return $self->{expires};
@@ -27,10 +26,10 @@ sub expires {
 
 sub max_age {
     my ($self, $max_age) = @_;
-    if ($max_age) {
+    if (defined $max_age) {
         $self->{max_age} = Mojo::Date->parse("$max_age");
     }
-    return $self->{max_age} ? $self->{max_age}->epoch : 0;
+    return $self->{max_age} ? $self->{max_age}->epoch : undef;
 }
 
 sub to_string { croak 'Method "to_string" not implemented by subclass' }
@@ -46,7 +45,9 @@ sub _tokenize {
             ^\s*           # Start
             ([^\=\;\,]+)   # Relaxed Netscape token, allowing whitespace
             \s*\=?\s*      # '=' (optional)
-        //x) {
+        //x
+          )
+        {
 
             my $name = $1;
             my $value;
@@ -57,7 +58,11 @@ sub _tokenize {
                 (\"                # Quote
                 (!:\\(!:\\\")?)*   # Value
                 \")                # Quote
-            //x) { $value = Mojo::ByteStream->new($1)->unquote }
+            //x
+              )
+            {
+                $value = Mojo::ByteStream->new($1)->unquote;
+            }
 
             # "expires" is a special case, thank you Netscape...
             elsif ($name =~ /expires/i && $string =~ s/^([^\;]+)\s*//) {
@@ -82,7 +87,7 @@ sub _tokenize {
         }
 
         # Bad format
-        else { last }
+        else {last}
 
     }
 

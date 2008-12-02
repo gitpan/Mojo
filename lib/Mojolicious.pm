@@ -13,25 +13,41 @@ use Mojolicious::Renderer;
 use MojoX::Dispatcher::Static;
 use MojoX::Types;
 
-__PACKAGE__->attr('ctx_class',
-    chained => 1,
-    default => 'Mojolicious::Context'
+__PACKAGE__->attr(
+    ctx_class => (
+        chained => 1,
+        default => 'Mojolicious::Context'
+    )
 );
-__PACKAGE__->attr('renderer',
-    chained => 1,
-    default => sub { Mojolicious::Renderer->new }
+__PACKAGE__->attr(
+    mode => (
+        chained => 1,
+        default => sub { ($ENV{MOJO_MODE} || 'development') }
+    )
 );
-__PACKAGE__->attr('routes',
-    chained => 1,
-    default => sub { Mojolicious::Dispatcher->new }
+__PACKAGE__->attr(
+    renderer => (
+        chained => 1,
+        default => sub { Mojolicious::Renderer->new }
+    )
 );
-__PACKAGE__->attr('static',
-    chained => 1,
-    default => sub { MojoX::Dispatcher::Static->new }
+__PACKAGE__->attr(
+    routes => (
+        chained => 1,
+        default => sub { Mojolicious::Dispatcher->new }
+    )
 );
-__PACKAGE__->attr('types',
-    chained => 1,
-    default => sub { MojoX::Types->new }
+__PACKAGE__->attr(
+    static => (
+        chained => 1,
+        default => sub { MojoX::Dispatcher::Static->new }
+    )
+);
+__PACKAGE__->attr(
+    types => (
+        chained => 1,
+        default => sub { MojoX::Types->new }
+    )
 );
 
 # The usual constructor stuff
@@ -49,6 +65,16 @@ sub new {
     $self->home->detect(ref $self);
     $self->renderer->root($self->home->rel_dir('templates'));
     $self->static->root($self->home->rel_dir('public'));
+
+    # Mode
+    my $mode = $self->mode;
+
+    # Log file
+    $self->log->path($self->home->rel_file("log/$mode.log"));
+
+    # Run mode
+    $mode = $mode . '_mode';
+    $self->$mode if $self->can($mode);
 
     # Startup
     $self->startup(@_);
@@ -69,10 +95,10 @@ sub dispatch {
     my ($self, $c) = @_;
 
     # Try to find a static file
-    $self->static->dispatch($c) unless $c->res->code;
+    my $done = $self->static->dispatch($c);
 
-    # Use routes if we don't have a response code yet
-    $self->routes->dispatch($c) unless $c->res->code;
+    # Use routes if we don't have a response yet
+    $self->routes->dispatch($c) unless $done;
 }
 
 # Bite my shiny metal ass!
@@ -86,7 +112,7 @@ sub handler {
 }
 
 # This will run once at startup
-sub startup {}
+sub startup { }
 
 1;
 __END__
@@ -119,6 +145,20 @@ See L<Mojo::Manual::Mojolicious> for user friendly documentation.
 L<Mojolicious> inherits all attributes from L<Mojo> and implements the
 following new ones.
 
+=head2 C<mode>
+
+    my $mode = $mojo->mode;
+    $mojo    = $mojo->mode('production');
+
+Returns the current mode if called without arguments.
+Returns the invocant if called with arguments.
+Defaults to C<$ENV{MOJO_MODE}> or C<development>.
+
+    my $mode = $mojo->mode;
+    if ($mode =~ m/^dev/) {
+        do_debug_output();
+    }
+
 =head2 C<renderer>
 
     my $renderer = $mojo->renderer;
@@ -147,6 +187,11 @@ new ones.
 =head2 C<new>
 
     my $mojo = Mojolicious->new;
+
+Returns a new L<Mojolicious> object.
+This method will call the method C<${mode}_mode> if it exists.
+(C<$mode> being the value of the attribute C<mode>).
+For example in production mode, C<production_mode> will be called.
 
 =head2 C<build_ctx>
 

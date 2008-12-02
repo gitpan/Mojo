@@ -7,12 +7,27 @@ use warnings;
 
 use base 'Mojo';
 
+use Data::Dumper;
+
 # How is education supposed to make me feel smarter? Besides,
 # every time I learn something new, it pushes some old stuff out of my brain.
 # Remember when I took that home winemaking course,
 # and I forgot how to drive?
+sub new {
+    my $self = shift->SUPER::new();
+
+    # This app should log only errors to STDERR
+    $self->log->level('error');
+    $self->log->path(undef);
+
+    return $self;
+}
+
 sub handler {
     my ($self, $tx) = @_;
+
+    # Dispatch to diagnostics functions
+    return $self->_diag($tx) if $tx->req->url->path =~ m|^/diag|;
 
     # Hello world!
     $tx->res->code(200);
@@ -20,6 +35,53 @@ sub handler {
     $tx->res->body('Congratulations, your Mojo is working!');
 
     return $tx;
+}
+
+sub _diag {
+    my ($self, $tx) = @_;
+
+    # Dispatch
+    my $path = $tx->req->url->path;
+    $self->_dump_env($tx)    if $path =~ m|^/diag/dump_env|;
+    $self->_dump_params($tx) if $path =~ m|^/diag/dump_params|;
+    $self->_dump_url($tx)    if $path =~ m|^/diag/dump_url|;
+
+    # Defaults
+    $tx->res->code(200) unless $tx->res->code;
+    $tx->res->headers->content_type('text/plain')
+      unless $tx->res->headers->content_type;
+
+    # List
+    if ($path =~ m|^/diag[/]?$|) {
+        $tx->res->headers->content_type('text/html');
+        $tx->res->body(<<'EOF');
+<!doctype html>
+  <head><title>Mojo Diagnostics</title></head>
+  <body>
+    <a href="/diag/dump_env">Dump Environment Variables</a><br />
+    <a href="/diag/dump_params">Dump Request Parameters</a><br />
+    <a href="/diag/dump_url">Dump Request URL</a>
+  </body>
+</html>
+EOF
+    }
+
+    return $tx;
+}
+
+sub _dump_env {
+    my ($self, $tx) = @_;
+    $tx->res->body(Dumper \%ENV);
+}
+
+sub _dump_params {
+    my ($self, $tx) = @_;
+    $tx->res->body(Dumper $tx->req->params->to_hash);
+}
+
+sub _dump_url {
+    my ($self, $tx) = @_;
+    $tx->res->body(Dumper $tx->req->url);
 }
 
 1;
@@ -46,6 +108,10 @@ testing.
 
 L<Mojo::HelloWorld> inherits all methods from L<Mojo> and implements the
 following new ones.
+
+=head2 C<new>
+
+    my $hello = Mojo::HelloWorld->new;
 
 =head2 C<handler>
 

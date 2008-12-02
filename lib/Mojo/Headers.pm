@@ -10,79 +10,77 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use Mojo::Buffer;
 
-__PACKAGE__->attr('buffer',
-    chained => 1,
-    default => sub { Mojo::Buffer->new }
+__PACKAGE__->attr(
+    buffer => (
+        chained => 1,
+        default => sub { Mojo::Buffer->new }
+    )
 );
 
 my @GENERAL_HEADERS = qw/
-    Cache-Control
-    Connection
-    Date
-    Pragma
-    Trailer
-    Transfer-Encoding
-    Upgrade
-    Via
-    Warning
-/;
+  Cache-Control
+  Connection
+  Date
+  Pragma
+  Trailer
+  Transfer-Encoding
+  Upgrade
+  Via
+  Warning
+  /;
 my @REQUEST_HEADERS = qw/
-    Accept
-    Accept-Charset
-    Accept-Encoding
-    Accept-Language
-    Authorization
-    Expect
-    From
-    Host
-    If-Match
-    If-Modified-Since
-    If-None-Match
-    If-Range
-    If-Unmodified-Since
-    Max-Forwards
-    Proxy-Authorization
-    Range
-    Referer
-    TE
-    User-Agent
-/;
+  Accept
+  Accept-Charset
+  Accept-Encoding
+  Accept-Language
+  Authorization
+  Expect
+  From
+  Host
+  If-Match
+  If-Modified-Since
+  If-None-Match
+  If-Range
+  If-Unmodified-Since
+  Max-Forwards
+  Proxy-Authorization
+  Range
+  Referer
+  TE
+  User-Agent
+  /;
 my @RESPONSE_HEADERS = qw/
-    Accept-Ranges
-    Age
-    ETag
-    Location
-    Proxy-Authenticate
-    Retry-After
-    Server
-    Vary
-    WWW-Authenticate
-/;
+  Accept-Ranges
+  Age
+  ETag
+  Location
+  Proxy-Authenticate
+  Retry-After
+  Server
+  Vary
+  WWW-Authenticate
+  /;
 my @ENTITY_HEADERS = qw/
-    Allow
-    Content-Encoding
-    Content-Language
-    Content-Length
-    Content-Location
-    Content-MD5
-    Content-Range
-    Content-Type
-    Expires
-    Last-Modified
-/;
+  Allow
+  Content-Encoding
+  Content-Language
+  Content-Length
+  Content-Location
+  Content-MD5
+  Content-Range
+  Content-Type
+  Expires
+  Last-Modified
+  /;
 
 my (%ORDERED_HEADERS, %NORMALCASE_HEADERS);
 {
     my $i = 1;
-    my @headers = (
-        @GENERAL_HEADERS,
-        @REQUEST_HEADERS,
-        @RESPONSE_HEADERS,
-        @ENTITY_HEADERS
-    );
+    my @headers = (@GENERAL_HEADERS, @REQUEST_HEADERS, @RESPONSE_HEADERS,
+        @ENTITY_HEADERS);
     for my $name (@headers) {
         my $lowercase = lc $name;
-        $ORDERED_HEADERS{$lowercase} = $i;
+        $ORDERED_HEADERS{$lowercase}    = $i;
         $NORMALCASE_HEADERS{$lowercase} = $name;
         $i++;
     }
@@ -91,10 +89,10 @@ my (%ORDERED_HEADERS, %NORMALCASE_HEADERS);
 sub add_line {
     my $self = shift;
     my $name = shift;
-    $name    = lc $name;
+    $name = lc $name;
 
     # Initialize header
-    $self->{_headers}          ||= {};
+    $self->{_headers} ||= {};
     $self->{_headers}->{$name} ||= [];
 
     # Add line
@@ -108,8 +106,9 @@ sub build {
 
     # Prepare headers
     my @headers;
-    for my $name ($self->names) {
+    for my $name (@{$self->names}) {
         for my $value ($self->header($name)) {
+            $value = '' unless defined $value;
             push @headers, "$name: $value";
         }
     }
@@ -119,13 +118,13 @@ sub build {
     return length $headers ? $headers : undef;
 }
 
-sub connection { return shift->header('Connection', @_) }
+sub connection          { return shift->header('Connection',          @_) }
 sub content_disposition { return shift->header('Content-Disposition', @_) }
-sub content_length { return shift->header('Content-Length', @_) }
-sub content_type { return shift->header('Content-Type', @_) }
-sub cookie { return shift->header('Cookie', @_) }
-sub date { return shift->header('Date', @_) }
-sub expect { return shift->header('Expect', @_) }
+sub content_length      { return shift->header('Content-Length',      @_) }
+sub content_type        { return shift->header('Content-Type',        @_) }
+sub cookie              { return shift->header('Cookie',              @_) }
+sub date                { return shift->header('Date',                @_) }
+sub expect              { return shift->header('Expect',              @_) }
 
 # Will you be my mommy? You smell like dead bunnies...
 sub header {
@@ -137,7 +136,7 @@ sub header {
 
     # Make sure we have a normal case entry for name
     my $lcname = lc $name;
-    unless($NORMALCASE_HEADERS{$lcname}) {
+    unless ($NORMALCASE_HEADERS{$lcname}) {
         $NORMALCASE_HEADERS{$lcname} = $name;
     }
     $name = $lcname;
@@ -156,6 +155,7 @@ sub header {
     # Filter
     my @header;
     for my $value (@{$self->{_headers}->{$name}}) {
+        $value = '' unless defined $value;
         $value =~ s/\s+$//;
         $value =~ s/\n\n+/\n/g;
         $value =~ s/\n([^\040\t])/\n $1/g;
@@ -192,7 +192,7 @@ sub names {
         push @headers, $NORMALCASE_HEADERS{$name} || $name;
     }
 
-    return @headers;
+    return \@headers;
 }
 
 sub parse {
@@ -223,10 +223,8 @@ sub parse {
 
             # Store headers
             for (my $i = 0; $i < @{$self->{__headers}}; $i += 2) {
-                $self->header(
-                  $self->{__headers}->[$i],
-                  $self->{__headers}->[$i + 1]
-                );
+                $self->header($self->{__headers}->[$i],
+                    $self->{__headers}->[$i + 1]);
             }
 
             # Done
@@ -253,15 +251,15 @@ sub remove {
     return $self;
 }
 
-sub set_cookie { return shift->header('Set-Cookie', @_) }
+sub set_cookie  { return shift->header('Set-Cookie',  @_) }
 sub set_cookie2 { return shift->header('Set-Cookie2', @_) }
-sub status { return shift->header('Status', @_) }
+sub status      { return shift->header('Status',      @_) }
 
 sub to_string { shift->build(@_) }
 
-sub trailer { return shift->header('Trailer', @_) }
+sub trailer           { return shift->header('Trailer',           @_) }
 sub transfer_encoding { return shift->header('Transfer-Encoding', @_) }
-sub user_agent { return shift->header('User-Agent', @_) }
+sub user_agent        { return shift->header('User-Agent',        @_) }
 
 1;
 __END__
@@ -372,6 +370,9 @@ the following new ones.
 
     $headers = $headers->add_line('Content-Type', 'text/plain');
 
+Returns the invocant.
+Appends a new line to the header.
+
 =head2 C<to_string>
 
 =head2 C<build>
@@ -388,7 +389,7 @@ the following new ones.
 
 =head2 C<names>
 
-    my @names = $headers->names;
+    my $names = $headers->names;
 
 =head2 C<parse>
 

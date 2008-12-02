@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-__PACKAGE__->attr('description', chained => 1, default => <<'EOF');
+__PACKAGE__->attr(description => (chained => 1, default => <<'EOF'));
 * Generate application directory structure. *
 Takes a name as option, by default MyMojoliciousApp will be used.
     generate app TestApp
@@ -30,7 +30,7 @@ sub run {
 
     # Controller
     my $controller = "${class}::Example";
-    my $path = $self->class_to_path($controller);
+    my $path       = $self->class_to_path($controller);
     $self->render_to_rel_file('controller', "$name/lib/$path", $controller);
 
     # Context
@@ -41,17 +41,19 @@ sub run {
     # Test
     $self->render_to_rel_file('test', "$name/t/basic.t", $class);
 
+    # Log
+    $self->create_rel_dir("$name/log");
+
     # Static
-    $self->render_to_rel_file('404', "$name/public/404.html");
+    $self->render_to_rel_file('404',    "$name/public/404.html");
     $self->render_to_rel_file('static', "$name/public/index.html");
 
     # Template
     $self->renderer->line_start('%%');
     $self->renderer->tag_start('<%%');
     $self->renderer->tag_end('%%>');
-    $self->render_to_rel_file(
-        'welcome', "$name/templates/example/welcome.phtml"
-    );
+    $self->render_to_rel_file('welcome',
+        "$name/templates/example/welcome.phtml");
 }
 
 1;
@@ -141,10 +143,10 @@ sub dispatch {
     my $done = $self->static->dispatch($c);
 
     # Use routes if we don't have a response code yet
-    $done = $self->routes->dispatch($c) unless $done;
+    $self->routes->dispatch($c) unless $done;
 
     # Nothing found, serve static file "public/404.html"
-    unless ($done) {
+    unless ($c->res->code) {
         $self->static->serve($c, '/404.html');
         $c->res->code(404);
     }
@@ -177,10 +179,10 @@ use base 'Mojolicious::Controller';
 
 # This action will render a template
 sub welcome {
-    my ($self, $c) = @_;
+    my $self = shift;
 
     # Render template "example/welcome.phtml"
-    $c->render;
+    $self->render;
 }
 
 1;

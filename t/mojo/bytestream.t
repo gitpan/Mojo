@@ -8,7 +8,7 @@ use warnings;
 # Homer, we're going to ask you a few simple yes or no questions.
 # Do you understand?
 # Yes. *lie dectector blows up*
-use Test::More tests => 20;
+use Test::More tests => 22;
 
 # Lisa, if the Bible has taught us nothing else, and it hasn't,
 # it's that girls should stick to girls sports,
@@ -36,16 +36,16 @@ $stream = Mojo::ByteStream->new("Zm9vYmFyJCVeJjMyMTc=\n");
 is($stream->b64_decode, 'foobar$%^&3217');
 
 # utf8 b64_encode
-$stream = Mojo::ByteStream->new("foo\x{df}\x{0100}bar%23\x{263a}")
-  ->encode('utf8')
+$stream =
+  Mojo::ByteStream->new("foo\x{df}\x{0100}bar%23\x{263a}")->encode('utf8')
   ->b64_encode;
 is("$stream", "Zm9vw5/EgGJhciUyM+KYug==\n");
 
 # utf8 b64_decode
-my $text = Mojo::ByteStream->new("Zm9vw5/EgGJhciUyM+KYug==\n")
-  ->b64_decode
-  ->decode('utf8');
-is("$text","foo\x{df}\x{0100}bar%23\x{263a}");
+my $text =
+  Mojo::ByteStream->new("Zm9vw5/EgGJhciUyM+KYug==\n")
+  ->b64_decode->decode('utf8');
+is("$text", "foo\x{df}\x{0100}bar%23\x{263a}");
 
 # url_escape
 $stream = Mojo::ByteStream->new('business;23');
@@ -56,15 +56,15 @@ $stream = Mojo::ByteStream->new('business%3B23');
 is($stream->url_unescape, 'business;23');
 
 # utf8 url_escape
-$stream = Mojo::ByteStream->new("foo\x{df}\x{0100}bar\x{263a}")
-  ->encode('utf8')
+$stream =
+  Mojo::ByteStream->new("foo\x{df}\x{0100}bar\x{263a}")->encode('utf8')
   ->url_escape;
 is("$stream", 'foo%C3%9F%C4%80bar%E2%98%BA');
 
 # utf8 url_unescape
-$text = Mojo::ByteStream->new('foo%C3%9F%C4%80bar%E2%98%BA')
-  ->url_unescape
-  ->decode('utf8');
+$text =
+  Mojo::ByteStream->new('foo%C3%9F%C4%80bar%E2%98%BA')
+  ->url_unescape->decode('utf8');
 is("$text", "foo\x{df}\x{0100}bar\x{263a}");
 
 # url_sanitize
@@ -73,7 +73,7 @@ is("$text", 't%C3estj1~230');
 
 # qp_encode
 $stream = Mojo::ByteStream->new("foo\x{99}bar$%^&3217");
-is($stream->qp_encode, "foo=99bar0^&3217=\n");
+like($stream->qp_encode, qr/^foo\=99bar0\^\&3217/);
 
 # qp_decode
 $stream = Mojo::ByteStream->new("foo=99bar0^&3217=\n");
@@ -94,3 +94,8 @@ is($stream->md5_sum, 'ab07acbb1e496801937adfa772424bf7');
 # length
 $stream = Mojo::ByteStream->new('foo bar baz');
 is($stream->length, 11);
+
+# "0"
+$stream = Mojo::ByteStream->new('0');
+is($stream->length,    1);
+is($stream->to_string, '0');

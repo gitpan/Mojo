@@ -1,3 +1,4 @@
+.perltidyrc
 bin/mojo
 bin/mojolicious
 Changes
@@ -21,9 +22,11 @@ lib/Mojo/Headers.pm
 lib/Mojo/HelloWorld.pm
 lib/Mojo/Home.pm
 lib/Mojo/Loader.pm
+lib/Mojo/Log.pm
 lib/Mojo/Manual.pod
 lib/Mojo/Manual/CodingGuidelines.pod
 lib/Mojo/Manual/Cookbook.pod
+lib/Mojo/Manual/Deployment.pod
 lib/Mojo/Manual/FAQ.pod
 lib/Mojo/Manual/FrameworkBuilding.pod
 lib/Mojo/Manual/GettingStarted.pod
@@ -64,6 +67,7 @@ lib/Mojolicious/Script/Generate/App.pm
 lib/Mojolicious/Script/Mojo.pm
 lib/Mojolicious/Script/Test.pm
 lib/Mojolicious/Scripts.pm
+lib/MojoX/Context.pm
 lib/MojoX/Dispatcher/Routes.pm
 lib/MojoX/Dispatcher/Routes/Context.pm
 lib/MojoX/Dispatcher/Routes/Controller.pm
@@ -81,6 +85,8 @@ rfc2388.txt
 rfc2616.txt
 rfc2965.txt
 rfc3986.txt
+t/mojo/apache_cgi.t
+t/mojo/apache_fastcgi.t
 t/mojo/base.t
 t/mojo/buffer.t
 t/mojo/bytestream.t
@@ -103,14 +109,22 @@ t/mojo/lighttpd_cgi.t
 t/mojo/lighttpd_fastcgi.t
 t/mojo/loader.t
 t/mojo/message.t
+t/mojo/parameters.t
 t/mojo/server.t
+t/mojo/stateful.t
 t/mojo/template.t
 t/mojo/url.t
 t/mojolicious/app.t
 t/mojolicious/lib/MojoliciousTest.pm
 t/mojolicious/lib/MojoliciousTest/Foo.pm
+t/mojolicious/lib/MojoliciousTest/Foo/Bar.pm
+t/mojolicious/lib/MojoliciousTest2/Foo.pm
 t/mojolicious/public/hello.txt
+t/mojolicious/public_dev/hello.txt
+t/mojolicious/templates/foo/bar/index.phtml
 t/mojolicious/templates/foo/index.phtml
+t/mojox/context.t
+t/mojox/renderer.t
 t/mojox/routes/pattern.t
 t/mojox/routes/routes.t
 t/pod.t

@@ -39,7 +39,7 @@ is($m->figs, 0);
 $m->figs(5);
 is($m->figs, 5);
 
-# "default", "filter" support
+# "default" support
 for my $i (101 .. 150) {
     $y = !$y;
     $monkeys->[$i] = LoaderTest->new;
@@ -53,10 +53,10 @@ for my $i (151 .. 200) {
     $monkeys->[$i] = LoaderTest->new;
     $monkeys->[$i]->friend($monkeys->[$i]);
     ok(isweak $monkeys->[$i]->{friend});
-    is($monkeys->[$i]->friend, $monkeys->[$i]);
-    is($monkeys->[$i]->ears, 2);
+    is($monkeys->[$i]->friend,        $monkeys->[$i]);
+    is($monkeys->[$i]->ears,          2);
     is($monkeys->[$i]->ears(6)->ears, 6);
-    is($monkeys->[$i]->eyes, 2);
+    is($monkeys->[$i]->eyes,          2);
     is($monkeys->[$i]->eyes(6)->eyes, 6);
 }
 

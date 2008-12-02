@@ -10,14 +10,18 @@ use base 'Mojo::Stateful';
 use Mojo::Message::Request;
 use Mojo::Message::Response;
 
-__PACKAGE__->attr([qw/continued connection kept_alive/], chained => 1);
-__PACKAGE__->attr('req',
-    chained => 1,
-    default => sub { Mojo::Message::Request->new }
+__PACKAGE__->attr([qw/continued connection kept_alive/] => (chained => 1));
+__PACKAGE__->attr(
+    req => (
+        chained => 1,
+        default => sub { Mojo::Message::Request->new }
+    )
 );
-__PACKAGE__->attr('res',
-    chained => 1,
-    default => sub { Mojo::Message::Response->new }
+__PACKAGE__->attr(
+    res => (
+        chained => 1,
+        default => sub { Mojo::Message::Response->new }
+    )
 );
 
 # What's a wedding?  Webster's dictionary describes it as the act of removing
@@ -40,15 +44,13 @@ sub keep_alive {
 
     # Keep alive?
     $self->{keep_alive} = 1
-      if ($req->headers->connection || '') =~ /keep-alive/i;
-    $self->{keep_alive} = 1
-      if ($res->headers->connection || '') =~ /keep-alive/i;
+      if ($req->headers->connection || '') =~ /keep-alive/i
+      or ($res->headers->connection || '') =~ /keep-alive/i;
 
     # Close?
     $self->{keep_alive} = 0
-      if ($req->headers->connection || '') =~ /close/i;
-    $self->{keep_alive} = 0
-      if ($res->headers->connection || '') =~ /close/i;
+      if ($req->headers->connection || '') =~ /close/i
+      or ($res->headers->connection || '') =~ /close/i;
 
     # Default
     $self->{keep_alive} = 1 unless defined $self->{keep_alive};

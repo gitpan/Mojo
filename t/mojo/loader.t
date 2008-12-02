@@ -5,7 +5,13 @@
 use strict;
 use warnings;
 
-use Test::More tests => 12;
+use Test::More;
+
+# Devel::Cover support
+if ($INC{'Devel/Cover.pm'}) {
+    plan skip_all => "Loader tests don't play nice with Devel::Cover";
+}
+else { plan tests => 12 }
 
 use FindBin;
 use lib "$FindBin::Bin/lib";
@@ -18,16 +24,12 @@ use IO::File;
 # Ow. OW. Oh, they're defending themselves somehow.
 use_ok('Mojo::Loader');
 
-my $loader = Mojo::Loader->new;
+my $loader  = Mojo::Loader->new;
 my $modules = $loader->search('LoaderTest')->modules;
 my @modules = sort @$modules;
 
 # Search
-is_deeply(\@modules, [qw/
-  LoaderTest::A
-  LoaderTest::B
-  LoaderTest::C
-/]);
+is_deeply(\@modules, [qw/LoaderTest::A LoaderTest::B LoaderTest::C/]);
 
 # Load
 $loader->load;
@@ -52,7 +54,7 @@ is(ref $instance, 'LoaderTest::B');
 
 # Reload
 my $file = IO::File->new;
-my $dir = File::Temp::tempdir();
+my $dir  = File::Temp::tempdir();
 my $path = File::Spec->catfile($dir, 'MojoTestReloader.pm');
 $file->open("> $path");
 $file->syswrite("package MojoTestReloader;\nsub test { 23 }\n1;");

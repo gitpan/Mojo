@@ -14,11 +14,29 @@ use Mojo::Template;
 # Wishful thinking. We have long since evolved beyond the need for asses.
 sub new {
     my $self = shift->SUPER::new(@_);
-    $self->default_ext('phtml');
-    $self->add_handler(phtml => sub {
-        my ($self, $c, $path) = @_;
-        Mojo::Template->new->render_file($path, $c);
-    });
+    $self->default_format('phtml');
+    $self->add_handler(
+        phtml => sub {
+            my ($self, $c, $output) = @_;
+
+            my $path = $c->stash->{template_path};
+
+            # Check cache
+            $self->{_mt_cache} ||= {};
+            my $mt = $self->{_mt_cache}->{$path};
+
+            # No cache
+            unless ($mt) {
+
+                # Initialize
+                $mt = $self->{_mt_cache}->{$path} = Mojo::Template->new;
+                return $mt->render_file($path, $output, $c);
+            }
+
+            # Interpret again
+            $mt->interpret($output, $c);
+        }
+    );
     return $self;
 }
 

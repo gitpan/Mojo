@@ -10,8 +10,8 @@ use base 'Mojo::Message';
 use Mojo::Cookie::Request;
 use Mojo::Parameters;
 
-__PACKAGE__->attr('method', chained => 1, default => 'GET');
-__PACKAGE__->attr('url', chained => 1, default => sub { Mojo::URL->new });
+__PACKAGE__->attr(method => (chained => 1, default => 'GET'));
+__PACKAGE__->attr(url => (chained => 1, default => sub { Mojo::URL->new }));
 
 sub cookies {
     my $self = shift;
@@ -40,7 +40,7 @@ sub fix_headers {
     $self->SUPER::fix_headers(@_);
 
     # Host header is required in HTTP 1.1 requests
-    if ($self->is_version('1.1')) {
+    if ($self->at_least_version('1.1')) {
         my $host = $self->url->host;
         my $port = $self->url->port;
         $host .= ":$port" if $port;
@@ -67,7 +67,7 @@ sub param {
 }
 
 sub params {
-    my $self = shift;
+    my $self   = shift;
     my $params = Mojo::Parameters->new;
     $params->merge($self->body_params, $self->query_params);
     return $params;
@@ -86,22 +86,38 @@ sub parse {
     $self->_parse_start_line if $self->is_state('start');
 
     # Pass through
-    return $self->SUPER::parse();
+    $self->SUPER::parse();
+
+    # Fix things we only know after parsing headers
+    unless ($self->is_state(qw/start headers/)) {
+
+        # Base URL
+        $self->url->base->scheme('http') unless $self->url->base->scheme;
+        $self->url->base->authority($self->headers->host)
+          if !$self->url->base->authority && $self->headers->host;
+    }
+
+    return $self;
 }
 
 sub proxy {
     my ($self, $url) = @_;
 
-    # New proxy
-    if ($url) {
-        $url = Mojo::URL->new($url) unless ref $url;
+    # Mojo::URL object
+    if (ref $url) {
         $self->{proxy} = $url;
         return $self;
     }
 
-    # Get proxy from ENV
-    if ($url = $ENV{HTTP_PROXY}) {
-        $self->{proxy} = Mojo::URL->new($url) unless $self->{proxy};
+    # String
+    elsif ($url) {
+        $self->{proxy} = Mojo::URL->new($url);
+        return $self;
+    }
+
+    # Environment
+    elsif (!$self->{proxy} && $ENV{HTTP_PROXY}) {
+        $self->{proxy} = Mojo::URL->new($ENV{HTTP_PROXY});
     }
 
     return $self->{proxy};
@@ -112,7 +128,7 @@ sub query_params { return shift->url->query }
 sub _build_start_line {
     my $self = shift;
 
-    my $method = $self->method;
+    my $method  = $self->method;
     my $version = $self->version;
 
     # Request url
@@ -138,20 +154,45 @@ sub _parse_env {
         my $value = $env->{$name};
 
         # Headers
-        if ($name =~ /^HTTP_/i) {
-            $name =~ s/^HTTP_//i;
+        if ($name =~ s/^HTTP_//i) {
             $name =~ s/_/-/g;
             $self->headers->header($name, $value);
+
+            # Host/Port
+            if ($name eq 'HOST') {
+                my $host = $value;
+                my $port = undef;
+
+                if ($host =~ /^([^\:]*)\:?(.*)$/) {
+                    $host = $1;
+                    $port = $2;
+                }
+
+                $self->url->host($host);
+                $self->url->port($port);
+                $self->url->base->host($host);
+                $self->url->base->port($port);
+            }
+        }
+
+        # Content-Type is a special case on some servers
+        elsif ($name eq 'CONTENT_TYPE') {
+            $self->headers->content_type($value);
+        }
+
+        # Content-Length is a special case on some servers
+        elsif ($name eq 'CONTENT_LENGTH') {
+            $self->headers->content_length($value);
         }
 
         # Path
         elsif ($name eq 'PATH_INFO') {
-            $self->url->path($value);
+            $self->url->path->parse($value);
         }
 
         # Query
         elsif ($name eq 'QUERY_STRING') {
-            $self->url->query($value);
+            $self->url->query->parse($value);
         }
 
         # Method
@@ -159,31 +200,15 @@ sub _parse_env {
 
         # Base path
         elsif ($name eq 'SCRIPT_NAME') {
-            $self->url->base->path($value);
-        }
-
-        # Host/Port
-        elsif ($name eq 'SERVER_NAME') {
-            my $host = $value;
-            my $port = undef;
-
-            if ($host =~ /^([^\:]*)\:?(.*)$/) {
-                $host = $1;
-                $port = $2;
-            }
-
-            $self->url->host($host);
-            $self->url->port($port);
-            $self->url->base->host($host);
-            $self->url->base->port($port);
+            $self->url->base->path->parse($value);
         }
 
         # Scheme/Version
         elsif ($name eq 'SERVER_PROTOCOL') {
             $value =~ /^([^\/]*)\/*(.*)$/;
-            $self->url->scheme($1) if $1;
+            $self->url->scheme($1)       if $1;
             $self->url->base->scheme($1) if $1;
-            $self->version($2) if $2;
+            $self->version($2)           if $2;
         }
     }
 
@@ -202,13 +227,15 @@ sub _parse_start_line {
     my $line = $self->buffer->get_line;
     if (defined $line) {
         if ($line =~ /
-            ^\s*                                         # Start
-            ([a-zA-Z]+)                                  # Method
-            \s+                                          # Whitespace
-            ([0-9a-zA-Z\$\-_\.\!\?\#\=\*\(\)\,\%\/\&]+)  # Path
-            (?:\s+HTTP\/(\d+)\.(\d+))?                   # Version (optional)
-            $                                            # End
-        /x) {
+            ^\s*                                                          # Start
+            ([a-zA-Z]+)                                                   # Method
+            \s+                                                           # Whitespace
+            ([0-9a-zA-Z\-\.\_\~\:\/\?\#\[\]\@\!\$\&\'\(\)\*\+\,\;\=\%]+)  # Path
+            (?:\s+HTTP\/(\d+)\.(\d+))?                                    # Version (optional)
+            $                                                             # End
+        /x
+          )
+        {
             $self->method($1);
             $self->url->parse($2);
 
@@ -306,5 +333,12 @@ implements the following new ones.
 
     my $proxy = $req->proxy;
     $req      = $req->proxy('http://foo:bar@127.0.0.1:3000');
+    $req      = $req->proxy( Mojo::URL->new('http://127.0.0.1:3000')  );
+
+Returns a L<Mojo::URL> object representing the HTTP proxy to be used if
+called without arguments.
+Returns the invocant if called with arguments.
+Expects a L<Mojo::URL> object or a string.
+Defaults to the C<HTTP_PROXY> environment variable.
 
 =cut

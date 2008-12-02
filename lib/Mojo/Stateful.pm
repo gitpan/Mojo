@@ -9,7 +9,7 @@ use base 'Mojo::Base';
 
 # Don't kid yourself, Jimmy. If a cow ever got the chance,
 # he'd eat you and everyone you care about!
-__PACKAGE__->attr('state', chained => 1, default => 'start');
+__PACKAGE__->attr(state => (chained => 1, default => 'start'));
 
 sub done { shift->state('done') }
 
@@ -23,6 +23,8 @@ sub error {
 sub has_error { return defined shift->{error} }
 
 sub is_done { return shift->state eq 'done' }
+
+sub is_finished { return shift->is_state(qw/done error/) }
 
 sub is_state {
     my ($self, @states) = @_;
@@ -73,6 +75,13 @@ following new ones.
 =head2 C<is_done>
 
     my $done = $stateful->is_done;
+
+=head2 C<is_finished>
+
+    my $finished = $stateful->is_finished;
+
+Returns true if C<state> is C<done> or C<error>.
+Returns false otherwise.
 
 =head2 C<is_state>
 

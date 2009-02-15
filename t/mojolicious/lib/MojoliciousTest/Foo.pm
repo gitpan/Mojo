@@ -1,4 +1,4 @@
-# Copyright (C) 2008, Sebastian Riedel.
+# Copyright (C) 2008-2009, Sebastian Riedel.
 
 package MojoliciousTest::Foo;
 
@@ -25,6 +25,11 @@ sub test {
     $c->res->code(200);
     $c->res->headers->header('X-Bender', 'Kiss my shiny metal ass!');
     $c->res->body($c->url_for(controller => 'bar'));
+}
+
+sub willdie {
+    my $self = shift;
+    die 'for some reason';
 }
 
 1;

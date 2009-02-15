@@ -1,4 +1,4 @@
-# Copyright (C) 2008, Sebastian Riedel.
+# Copyright (C) 2008-2009, Sebastian Riedel.
 
 package MojoX::Routes::Match;
 
@@ -68,7 +68,7 @@ sub url_for {
             }
 
             # Just values
-            $values = {@_};
+            else { $values = {@_} }
 
         }
     }

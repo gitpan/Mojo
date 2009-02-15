@@ -124,6 +124,8 @@ t/mojolicious/public_dev/hello.txt
 t/mojolicious/templates/foo/bar/index.phtml
 t/mojolicious/templates/foo/index.phtml
 t/mojox/context.t
+t/mojox/dispatcher/persistent_error.t
+t/mojox/dispatcher/routes.t
 t/mojox/renderer.t
 t/mojox/routes/pattern.t
 t/mojox/routes/routes.t

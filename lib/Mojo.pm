@@ -1,4 +1,4 @@
-# Copyright (C) 2008, Sebastian Riedel.
+# Copyright (C) 2008-2009, Sebastian Riedel.
 
 package Mojo;
 
@@ -18,10 +18,12 @@ __PACKAGE__->attr(home => (chained => 1, default => sub { Mojo::Home->new }));
 __PACKAGE__->attr(log  => (chained => 1, default => sub { Mojo::Log->new }));
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.9';
+our $VERSION = '0.9001';
 
 sub new {
     my $self = shift->SUPER::new();
+
+    $self->home->detect(ref $self);
 
     # Log directory
     $self->log->path($self->home->rel_file('log/mojo.log'));
@@ -196,7 +198,7 @@ And thanks to everyone else i might have forgotten. (Please send me a mail)
 
 =head1 COPYRIGHT
 
-Copyright (C) 2008, Sebastian Riedel.
+Copyright (C) 2008-2009, Sebastian Riedel.
 
 This program is free software, you can redistribute it and/or modify it under
 the same terms as Perl 5.10.

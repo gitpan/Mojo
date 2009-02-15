@@ -1,4 +1,4 @@
-# Copyright (C) 2008, Sebastian Riedel.
+# Copyright (C) 2008-2009, Sebastian Riedel.
 
 package MojoX::Dispatcher::Routes;
 
@@ -29,7 +29,12 @@ sub dispatch {
     return 0 unless $match;
 
     # Initialize stash with captures
-    $c->stash({%{$match->captures}});
+    my %captures = %{$match->captures};
+    foreach my $key (keys %captures) {
+        $captures{$key} =
+          Mojo::ByteStream->new($captures{$key})->url_unescape->to_string;
+    }
+    $c->stash({%captures});
 
     # Prepare disallow
     unless ($self->{_disallow}) {
@@ -40,6 +45,9 @@ sub dispatch {
     # Walk the stack
     my $stack = $match->stack;
     for my $field (@$stack) {
+
+        # Don't cache errors
+        local $@;
 
         # Method
         my $method = $field->{method};

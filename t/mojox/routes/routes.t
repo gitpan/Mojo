@@ -1,11 +1,11 @@
 #!perl
 
-# Copyright (C) 2008, Sebastian Riedel.
+# Copyright (C) 2008-2009, Sebastian Riedel.
 
 use strict;
 use warnings;
 
-use Test::More tests => 46;
+use Test::More tests => 47;
 
 use Mojo::Transaction;
 
@@ -113,6 +113,7 @@ is($match->url_for,                  '/test3/edit');
 $match = $r->match(_tx('/test3'));
 is($match->url_for, '/test3');
 is($match->url_for('test_edit', controller => 'foo'), '/foo/test/edit');
+is($match->url_for('test_edit', {controller => 'foo'}), '/foo/test/edit');
 
 # Helper
 sub _tx {

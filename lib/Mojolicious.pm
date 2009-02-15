@@ -1,4 +1,4 @@
-# Copyright (C) 2008, Sebastian Riedel.
+# Copyright (C) 2008-2009, Sebastian Riedel.
 
 package Mojolicious;
 
@@ -98,7 +98,10 @@ sub dispatch {
     my $done = $self->static->dispatch($c);
 
     # Use routes if we don't have a response yet
-    $self->routes->dispatch($c) unless $done;
+    $done ||= $self->routes->dispatch($c);
+
+    # Nothing found
+    $self->static->serve_404($c) unless $done;
 }
 
 # Bite my shiny metal ass!

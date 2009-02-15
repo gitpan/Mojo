@@ -1,4 +1,4 @@
-# Copyright (C) 2008, Sebastian Riedel.
+# Copyright (C) 2008-2009, Sebastian Riedel.
 
 package Mojo::Loader;
 
@@ -224,8 +224,8 @@ following new ones.
 
 =head2 C<load_build>
 
-    my $instance = Mojo::Loader->load_build('MyApp';
-    my $instance = $loader->load_build('MyApp';
+    my $instance = Mojo::Loader->load_build('MyApp');
+    my $instance = $loader->load_build('MyApp');
     my $instance = Mojo::Loader->load_build('MyApp', qw/some args/);
     my $instance = $loader->load_build('MyApp', qw/some args/);
 

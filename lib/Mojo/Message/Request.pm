@@ -1,4 +1,4 @@
-# Copyright (C) 2008, Sebastian Riedel.
+# Copyright (C) 2008-2009, Sebastian Riedel.
 
 package Mojo::Message::Request;
 
@@ -31,7 +31,7 @@ sub cookies {
     }
 
     # No cookies
-    return undef;
+    return [];
 }
 
 sub fix_headers {

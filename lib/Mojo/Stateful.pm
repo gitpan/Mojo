@@ -9,7 +9,7 @@ use base 'Mojo::Base';
 
 # Don't kid yourself, Jimmy. If a cow ever got the chance,
 # he'd eat you and everyone you care about!
-__PACKAGE__->attr(state => (chained => 1, default => 'start'));
+__PACKAGE__->attr(state => (default => 'start'));
 
 sub done { shift->state('done') }
 
@@ -24,7 +24,7 @@ sub has_error { return defined shift->{error} }
 
 sub is_done { return shift->state eq 'done' }
 
-sub is_finished { return shift->is_state(qw/done error/) }
+sub is_finished { return shift->is_state(qw/done done_with_leftovers error/) }
 
 sub is_state {
     my ($self, @states) = @_;

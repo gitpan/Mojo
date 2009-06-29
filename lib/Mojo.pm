@@ -14,15 +14,16 @@ use Mojo::Home;
 use Mojo::Log;
 use Mojo::Transaction;
 
-__PACKAGE__->attr(home => (chained => 1, default => sub { Mojo::Home->new }));
-__PACKAGE__->attr(log  => (chained => 1, default => sub { Mojo::Log->new }));
+__PACKAGE__->attr(home => (default => sub { Mojo::Home->new }));
+__PACKAGE__->attr(log  => (default => sub { Mojo::Log->new }));
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.9002';
+our $VERSION = '0.991231';
 
 sub new {
-    my $self = shift->SUPER::new();
+    my $self = shift->SUPER::new(@_);
 
+    # Home
     $self->home->detect(ref $self);
 
     # Log directory
@@ -154,6 +155,8 @@ Sebastian Riedel, C<sri@cpan.org>.
 
 In alphabetical order:
 
+Anatoly Sharifulin
+
 Andreas Koenig
 
 Andy Grundman
@@ -166,6 +169,8 @@ Audrey Tang
 
 Breno G. de Oliveira
 
+Burak Gursoy
+
 Ch Lamprecht
 
 Christian Hansen
@@ -173,6 +178,8 @@ Christian Hansen
 Gisle Aas
 
 Graham Barr
+
+James Duncan
 
 Jesse Vincent
 
@@ -184,7 +191,13 @@ Marcus Ramberg
 
 Mark Stosberg
 
+Maxym Komar
+
+Pascal Gaudette
+
 Pedro Melo
+
+Randal Schwartz
 
 Robert Hicks
 

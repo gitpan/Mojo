@@ -18,25 +18,10 @@ use Mojo::Parameters;
 use Mojo::Upload;
 use Mojo::URL;
 
-__PACKAGE__->attr(
-    buffer => (
-        chained => 1,
-        default => sub { Mojo::Buffer->new }
-    )
-);
-__PACKAGE__->attr([qw/parser_progress_cb/] => (chained => 1));
-__PACKAGE__->attr(
-    content => (
-        chained => 1,
-        default => sub { Mojo::Content->new }
-    )
-);
-__PACKAGE__->attr(
-    [qw/major_version minor_version/] => (
-        chained => 1,
-        default => 1
-    )
-);
+__PACKAGE__->attr(buffer => (default => sub { Mojo::Buffer->new }));
+__PACKAGE__->attr([qw/parser_progress_cb/]);
+__PACKAGE__->attr(content => (default => sub { Mojo::Content->new }));
+__PACKAGE__->attr([qw/major_version minor_version/] => (default => 1));
 
 # I'll keep it short and sweet. Family. Religion. Friendship.
 # These are the three demons you must slay if you wish to succeed in
@@ -255,6 +240,8 @@ sub get_start_line_chunk {
     return substr($copy, $offset, 4096);
 }
 
+sub has_leftovers { shift->content->has_leftovers }
+
 sub header_length {
     my $self = shift;
 
@@ -270,6 +257,8 @@ sub is_chunked { shift->content->is_chunked }
 
 sub is_multipart { shift->content->is_multipart }
 
+sub leftovers { shift->content->leftovers }
+
 sub param {
     my $self = shift;
     $self->{body_params} ||= $self->body_params;
@@ -283,19 +272,51 @@ sub parse {
     # Buffer
     $self->buffer->add_chunk(join '', @_) if @_;
 
+    return $self->_parse(0);
+}
+
+sub parse_until_body {
+    my $self = shift;
+
+    # Buffer
+    $self->buffer->add_chunk(join '', @_) if @_;
+
+    return $self->_parse(1);
+}
+
+sub _parse {
+    my $self = shift;
+    my $until_body = @_ ? shift : 0;
+
     # Progress
     $self->parser_progress_cb->($self) if $self->parser_progress_cb;
 
     # Content
-    if ($self->is_state(qw/content done/)) {
+    if ($self->is_state(qw/content done done_with_leftovers/)) {
         my $content = $self->content;
+
+        # HTTP 0.9 has no headers
         $content->state('body') if $self->version eq '0.9';
+
+        # Parse
         $content->filter_buffer($self->buffer);
-        $self->content($content->parse);
+
+        # Until body
+        if ($until_body) { $self->content($content->parse_until_body) }
+
+        # Whole message
+        else { $self->content($content->parse) }
+
+        # HTTP 0.9 has no defined length
+        $content->state('done') if $self->version eq '0.9';
     }
 
     # Done
     $self->done if $self->content->is_done;
+
+    # Done with leftovers, maybe pipelined
+    $self->state('done_with_leftovers')
+      if $self->content->is_state('done_with_leftovers');
 
     return $self;
 }
@@ -529,6 +550,13 @@ Defaults to 1.
 L<Mojo::Message> inherits all methods from L<Mojo::Stateful> and implements
 the following new ones.
 
+=head2 C<at_least_version>
+
+    my $success = $message->at_least_version('1.1');
+
+Returns true if the HTTP version is greater than or equal to the version
+passed in.
+
 =head2 C<body>
 
     my $string = $message->body;
@@ -600,20 +628,21 @@ followed HTTP version are set.
 
     my $string = $message->get_start_line_chunk($offset);
 
+=head2 C<has_leftovers>
+
+    my $leftovers = $message->has_leftovers;
+
 =head2 C<is_chunked>
 
-    my $is_chunked = $message->is_chunked;
+    my $chunked = $message->is_chunked;
 
 =head2 C<is_multipart>
 
-    my $is_multipart = $message->is_multipart;
+    my $multipart = $message->is_multipart;
 
-=head2 C<at_least_version>
+=head2 C<leftovers>
 
-    my $success = $message->at_least_version('1.1');
-
-Returns true if the HTTP version is greater than or equal to the version
-passed in.
+    my $bytes = $message->leftovers;
 
 =head2 C<param>
 
@@ -623,6 +652,10 @@ passed in.
 =head2 C<parse>
 
     $message = $message->parse('HTTP/1.1 200 OK...');
+
+=head2 C<parse_until_body>
+
+    $message = $message->parse_until_body('HTTP/1.1 200 OK...');
 
 =head2 C<upload>
 

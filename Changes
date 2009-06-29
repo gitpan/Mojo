@@ -1,5 +1,59 @@
 This file documents the revision history for Perl extension Mojo.
 
+0.991231 2009-06-29 00:00:00
+        - Rewrote MojoX::Renderer, it is not backward compatible and
+          templates need to be renamed in the following 3 part format
+          "index.html.tt"!
+        - Added exception support to MojoX::Dispatcher::Routes, this change
+          is not backward compatible and "dispatch" calls now return
+          exception objects for errors and false otherwise.
+        - Changed routes syntax, this change is not backward compatible and
+          you need to change all your existing routes.
+            "/:foo" becomes "/(foo)"
+            "/^foo" becomes "/((foo))"
+            "/*foo" becomes "/(((foo)))"
+        - Added full HTTP 1.1 pipelining support to all Mojo layers.
+        - Added layout support to MojoX::Renderer.
+        - Made render call optional.
+        - Added format support to MojoX::Routes.
+        - Added Mojo::Loader::Exception.
+        - Added wildcard symbol support to MojoX::Routes and rewrote many
+          routes internals.
+        - Added Makefile.PL generator.
+        - Added HttpOnly support to Mojo::Cookie. (burak)
+        - Support more CGI implementations.
+        - Added support for namespaces only dispatching in
+          MojoX::Dispatcher::Routes.
+        - Added encoding support to Mojo::Template and made "utf8" the
+          default.
+        - Added HEAD support to Mojo::Server::Daemon. (acajou)
+        - Added new relaxed placeholder to MojoX::Routes::Pattern.
+        - Added Mojo::Template::Exception.
+        - Added HEAD support to the Mojo::Transaction state machine and
+          related modules. (acajou)
+        - Added safe_post option to Mojo::Pipeline. (acajou)
+        - Made chained => 1 the default in Mojo::Base.
+        - Fixed compiler bug in Mojo::Template that prevented more advanced
+          control structures, you might have to add additional semicolons to
+          some of your templates.
+        - Fixed Mojo::Date to not crash on invalid dates. (vti)
+        - Fixed chunked support in Mojo::Server::Daemon and Mojo::Client.
+        - Fixed tokenizer in MojoX::Routes::Pattern to support "0" values.
+          (Anatoly Sharifulin)
+        - Fixed parsing of "0" in Mojo::Path. (charsbar)
+        - Fix server tests on win32. (charsbar)
+        - Fixed leading whitespace problem in the request parser. (acajou)
+        - Fixed broken pipe problem in Mojo::Server::CGI. (vti)
+        - Added more diagnostics options to Mojo::HelloWorld. (uwe)
+        - Fixed empty cookie parsing. (vti)
+        - Fixed a case where child processes migth hang in
+          Mojo::Server::Daemon::Prefork. (gbarr)
+        - Fixed a bug in MojoX::Dispatcher::Routes where the renderer would
+          be called with an empty stack. (melo)
+        - Fixed a escaping problem in Mojo::Parameters. (vti)
+        - Updated Mojo::URL to be more template friendly.
+        - Improved Solaris compatibility.
+
 0.9002  2009-02-16 00:00:00
         - Added local_address(), local_port(), remote_address() and
           remote_port() to Mojo::Transaction.

@@ -16,20 +16,14 @@ use IO::Select;
 use IO::Socket;
 use POSIX 'WNOHANG';
 
-__PACKAGE__->attr(cleanup_interval  => (chained => 1, default => 15));
-__PACKAGE__->attr(idle_timeout      => (chained => 1, default => 30));
-__PACKAGE__->attr(max_clients       => (chained => 1, default => 1));
-__PACKAGE__->attr(max_servers       => (chained => 1, default => 100));
-__PACKAGE__->attr(max_spare_servers => (chained => 1, default => 10));
-__PACKAGE__->attr(
-    [qw/min_spare_servers start_servers/] => (
-        chained => 1,
-        default => 5
-    )
-);
+__PACKAGE__->attr(cleanup_interval                      => (default => 15));
+__PACKAGE__->attr(idle_timeout                          => (default => 30));
+__PACKAGE__->attr(max_clients                           => (default => 1));
+__PACKAGE__->attr(max_servers                           => (default => 100));
+__PACKAGE__->attr(max_spare_servers                     => (default => 10));
+__PACKAGE__->attr([qw/min_spare_servers start_servers/] => (default => 5));
 __PACKAGE__->attr(
     pid_file => (
-        chained => 1,
         default => sub {
             return File::Spec->catfile(
                 File::Spec->splitdir(File::Spec->tmpdir),
@@ -54,14 +48,25 @@ __PACKAGE__->attr(
 # Bart, go to your room.
 sub accept_lock {
     my ($self, $blocking) = @_;
-    $self->{_child_write}->syswrite("$$ idle\n") if $blocking;
+
+    # Idle
+    if ($blocking) {
+        $self->{_child_write}->syswrite("$$ idle\n")
+          or die "Can't write to parent: $!";
+    }
 
     # Lock
     my $lock =
       $blocking
       ? flock($self->{_lock}, LOCK_EX)
       : flock($self->{_lock}, LOCK_EX | LOCK_NB);
-    $self->{_child_write}->syswrite("$$ busy\n") if $lock;
+
+    # Busy
+    if ($lock) {
+        $self->{_child_write}->syswrite("$$ busy\n")
+          or die "Can't write to parent: $!";
+    }
+
     return $lock;
 }
 
@@ -258,7 +263,7 @@ sub _read_messages {
 
     # Read messages
     if ($self->{_child_select}->can_read(1)) {
-        next unless $self->{_child_read}->sysread(my $buffer, 4096);
+        return unless $self->{_child_read}->sysread(my $buffer, 4096);
         $self->{_buffer} .= $buffer;
     }
 
@@ -318,11 +323,12 @@ sub _spawn_child {
         $self->log('Child started') if DEBUG;
 
         # No need for child reader
-        delete $self->{_child_read};
+        close(delete $self->{_child_read});
+        delete $self->{_child_select};
 
         # Lockfile
         my $lock = $self->pid_file;
-        $self->{_lock} = IO::File->new($lock, O_RDONLY)
+        $self->{_lock} = IO::File->new($lock, O_RDWR)
           or die "Can't open lock file $lock: $!";
 
         # Parent will send a SIGHUP when there are too many children idle
@@ -335,7 +341,8 @@ sub _spawn_child {
         }
 
         # Done
-        $self->{_child_write}->syswrite("$$ done\n");
+        $self->{_child_write}->syswrite("$$ done\n")
+          or die "Can't write to parent: $!";
         delete $self->{_child_write};
         delete $self->{_lock};
         exit 0;

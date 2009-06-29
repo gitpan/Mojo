@@ -12,7 +12,7 @@ use Carp;
 use Mojo::Date;
 
 __PACKAGE__->attr(
-    [qw/comment domain name path secure value version/] => (chained => 1));
+    [qw/comment domain httponly name path secure value version/]);
 
 # My Homer is not a communist.
 # He may be a liar, a pig, an idiot, a communist, but he is not a porn star.
@@ -38,7 +38,7 @@ sub _tokenize {
     my ($self, $string) = @_;
 
     my (@tree, @token);
-    while (length $string) {
+    while ($string) {
 
         # Name
         if ($string =~ s/
@@ -128,6 +128,11 @@ L<Mojo::Cookie> is a cookie base class.
 
     my $expires = $cookie->expires;
     $cookie     = $cookie->expires(time + 60);
+
+=head2 C<httponly>
+
+    my $httponly = $cookie->httponly;
+    $cookie      = $cookie->httponly(1);
 
 =head2 C<max_age>
 

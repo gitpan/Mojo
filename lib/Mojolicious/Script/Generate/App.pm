@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-__PACKAGE__->attr(description => (chained => 1, default => <<'EOF'));
+__PACKAGE__->attr(description => (default => <<'EOF'));
 * Generate application directory structure. *
 Takes a name as option, by default MyMojoliciousApp will be used.
     generate app TestApp
@@ -33,11 +33,6 @@ sub run {
     my $path       = $self->class_to_path($controller);
     $self->render_to_rel_file('controller', "$name/lib/$path", $controller);
 
-    # Context
-    my $context = "${class}::Context";
-    $path = $self->class_to_path($context);
-    $self->render_to_rel_file('context', "$name/lib/$path", $context);
-
     # Test
     $self->render_to_rel_file('test', "$name/t/basic.t", $class);
 
@@ -46,14 +41,19 @@ sub run {
 
     # Static
     $self->render_to_rel_file('404',    "$name/public/404.html");
+    $self->render_to_rel_file('500',    "$name/public/500.html");
     $self->render_to_rel_file('static', "$name/public/index.html");
 
-    # Template
+    # Layout and Templates
     $self->renderer->line_start('%%');
     $self->renderer->tag_start('<%%');
     $self->renderer->tag_end('%%>');
+    $self->render_to_rel_file('exception',
+        "$name/templates/exception.html.epl");
+    $self->render_to_rel_file('layout',
+        "$name/templates/layouts/default.html.epl");
     $self->render_to_rel_file('welcome',
-        "$name/templates/example/welcome.phtml");
+        "$name/templates/example/welcome.html.epl");
 }
 
 1;
@@ -95,9 +95,14 @@ __404__
     <head><title>Document not found.</title></head>
     <body><h2>Document not found.</h2></body>
 </html>
+__500__
+<!doctype html>
+    <head><title>Internal server error.</title></head>
+    <body><h2>Internal server error.</h2></body>
+</html>
 __mojo__
 % my $class = shift;
-#!<%= $^X %>
+#!/usr/bin/perl
 
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
@@ -135,32 +140,17 @@ use warnings;
 
 use base 'Mojolicious';
 
-# This method will run for each request
-sub dispatch {
-    my ($self, $c) = @_;
-
-    # Try to find a static file
-    my $done = $self->static->dispatch($c);
-
-    # Use routes if we don't have a response code yet
-    $done ||= $self->routes->dispatch($c);
-
-    # Nothing found, serve static file "public/404.html"
-    $self->static->serve_404($c) unless $done;
-}
+our $VERSION = '0.1';
 
 # This method will run once at server start
 sub startup {
     my $self = shift;
 
-    # Use our own context class
-    $self->ctx_class('<%= $class %>::Context');
-
     # Routes
     my $r = $self->routes;
 
     # Default route
-    $r->route('/:controller/:action/:id')
+    $r->route('/(controller)/(action)/(id)')
       ->to(controller => 'example', action => 'welcome', id => 1);
 }
 
@@ -178,19 +168,12 @@ use base 'Mojolicious::Controller';
 sub welcome {
     my $self = shift;
 
-    # Render template "example/welcome.phtml"
-    $self->render;
+    # Render template "example/welcome.html.epl" with message and layout
+    $self->render(
+        layout  => 'default',
+        message => 'Welcome to the Mojolicious Web Framework!'
+    );
 }
-
-1;
-__context__
-% my $class = shift;
-package <%= $class %>;
-
-use strict;
-use warnings;
-
-use base 'Mojolicious::Context';
 
 1;
 __static__
@@ -227,21 +210,40 @@ $client->process_local('<%= $class %>', $tx);
 is($tx->res->code, 200);
 is($tx->res->headers->content_type, 'text/html');
 like($tx->res->content->file->slurp, qr/Mojolicious Web Framework/i);
-__welcome__
-% my $c = shift;
+__exception__
+% my $self = shift;
+% my $e = $self->stash('exception');
+This page was generated from the template
+"templates/exception.html.epl".
+<pre><%= $e->message %></pre>
+<pre>
+% for my $line (@{$e->lines_before}) {
+    <%= $line->[0] %>: <%= $line->[1] %>
+% }
+% if ($e->line->[0]) {
+    <%= $e->line->[0] %>: <%= $e->line->[1] %>
+% }
+% for my $line (@{$e->lines_after}) {
+    <%= $line->[0] %>: <%= $line->[1] %>
+% }
+</pre>
+% use Data::Dumper;
+<pre><%= Dumper $self->stash %></pre>
+__layout__
+% my $self = shift;
 <!doctype html>
-    <head><title>Welcome to the Mojolicious Web Framework!</title></head>
+    <head><title>Welcome</title></head>
     <body>
-        <h2>Welcome to the Mojolicious Web Framework!</h2>
-        This page was generated from the template
-        "templates/example/welcome.phtml",
-        <a href="<%= $c->url_for %>">
-            click here
-        </a> 
-        to reload the page or
-        <a href="/index.html">
-            here
-        </a>
-        to move forward to a static page.
+        <%= $self->render_inner %>
     </body>
 </html>
+__welcome__
+% my $self = shift;
+<h2><%= $self->stash('message') %></h2>
+This page was generated from the template
+"templates/example/welcome.html.epl" and the layout
+"templates/layouts/default.html.epl",
+<a href="<%= $self->url_for %>">click here</a>
+to reload the page or
+<a href="/index.html">here</a>
+to move forward to a static page.

@@ -7,20 +7,21 @@ use warnings;
 
 use base 'Mojo::Base';
 
-use constant DEBUG => $ENV{MOJO_TEMPLATE_DEBUG} || 0;
-
 use Carp 'croak';
+use Encode qw/decode encode/;
 use IO::File;
+use Mojo::Template::Exception;
 
-__PACKAGE__->attr(code            => (chained => 1, default => ''));
-__PACKAGE__->attr(comment_mark    => (chained => 1, default => '#'));
-__PACKAGE__->attr(compiled        => (chained => 1));
-__PACKAGE__->attr(expression_mark => (chained => 1, default => '='));
-__PACKAGE__->attr(line_start      => (chained => 1, default => '%'));
-__PACKAGE__->attr(template        => (chained => 1, default => ''));
-__PACKAGE__->attr(tree => (chained => 1, default => sub { [] }));
-__PACKAGE__->attr(tag_start => (chained => 1, default => '<%'));
-__PACKAGE__->attr(tag_end   => (chained => 1, default => '%>'));
+__PACKAGE__->attr(code         => (default => ''));
+__PACKAGE__->attr(comment_mark => (default => '#'));
+__PACKAGE__->attr('compiled');
+__PACKAGE__->attr(encoding        => (default => 'utf8'));
+__PACKAGE__->attr(expression_mark => (default => '='));
+__PACKAGE__->attr(line_start      => (default => '%'));
+__PACKAGE__->attr(template        => (default => ''));
+__PACKAGE__->attr(tree            => (default => sub { [] }));
+__PACKAGE__->attr(tag_start       => (default => '<%'));
+__PACKAGE__->attr(tag_end         => (default => '%>'));
 
 sub build {
     my $self = shift;
@@ -50,7 +51,7 @@ sub build {
 
             # Code
             if ($type eq 'code') {
-                $lines[-1] .= "$value;";
+                $lines[-1] .= "$value";
             }
 
             # Expression
@@ -77,10 +78,7 @@ sub compile {
     return undef unless $code;
 
     # Catch compilation warnings
-    local $SIG{__WARN__} = sub {
-        my $error = shift;
-        warn $self->_error($error);
-    };
+    local $SIG{__WARN__} = sub { };
 
     # Compile
     my $compiled = eval $code;
@@ -99,10 +97,7 @@ sub interpret {
     return undef unless $compiled;
 
     # Catch interpreter warnings
-    local $SIG{__WARN__} = sub {
-        my $error = shift;
-        warn $self->_error($error);
-    };
+    local $SIG{__WARN__} = sub { };
 
     # Interpret
     $$output = eval { $compiled->(@_) };
@@ -263,6 +258,9 @@ sub render_file {
         $tmpl .= $buffer;
     }
 
+    # Encoding
+    $tmpl = decode($self->encoding, $tmpl) if $self->encoding;
+
     # Render
     return $self->render($tmpl, @_);
 }
@@ -293,75 +291,37 @@ sub render_to_file {
     return $self->_write_file($path, $output);
 }
 
-sub _context {
-    my ($self, $text, $line) = @_;
-
-    $line -= 1;
-    my $nline  = $line + 1;
-    my $pline  = $line - 1;
-    my $nnline = $line + 2;
-    my $ppline = $line - 2;
-    my @lines  = split /\n/, $text;
-
-    # Context
-    my $context = (($line + 1) . ': ' . $lines[$line] . "\n");
-
-    # -1
-    $context = (($pline + 1) . ': ' . $lines[$pline] . "\n" . $context)
-      if $lines[$pline];
-
-    # -2
-    $context = (($ppline + 1) . ': ' . $lines[$ppline] . "\n" . $context)
-      if $lines[$ppline];
-
-    # +1
-    $context = ($context . ($nline + 1) . ': ' . $lines[$nline] . "\n")
-      if $lines[$nline];
-
-    # +2
-    $context = ($context . ($nnline + 1) . ': ' . $lines[$nnline] . "\n")
-      if $lines[$nnline];
-
-    return $context;
-}
-
 # Debug goodness
 sub _error {
     my ($self, $error) = @_;
 
-    # No trace in production mode
-    return undef unless DEBUG;
+    my $te = Mojo::Template::Exception->new(message => $error);
 
     # Line
     if ($error =~ /at\s+\(eval\s+\d+\)\s+line\s+(\d+)/) {
-        my $line  = $1;
-        my $delim = '-' x 76;
 
-        my $report = "\nTemplate error around line $line.\n";
-        my $template = $self->_context($self->template, $line);
-        $report .= "$delim\n$template$delim\n";
+        my $line = $1;
+        my @lines = split /\n/, $self->template;
 
-        # Advanced debugging
-        if (DEBUG >= 2) {
-            my $code = $self->_context($self->code, $line);
-            $report .= "$code$delim\n";
-        }
-
-        $report .= "$error\n";
-        return $report;
+        $te->parse_context(\@lines, $line);
     }
 
-    # No line found
-    return "Template error: $error";
+    return $te;
 }
 
 sub _write_file {
     my ($self, $path, $output) = @_;
 
-    # Write to file
+    # Open file
     my $file = IO::File->new;
-    $file->open("> $path")   or croak "Can't open file '$path': $!";
+    $file->open("> $path") or croak "Can't open file '$path': $!";
+
+    # Encoding
+    $output = encode($self->encoding, $output) if $self->encoding;
+
+    # Write to file
     $file->syswrite($output) or croak "Can't write to file '$path': $!";
+
     return 1;
 }
 
@@ -455,9 +415,8 @@ newline you can escape the backslash with another backslash.
 
 Templates get compiled to Perl code internally, this can make debugging a bit
 tricky.
-But by setting the MOJO_TEMPLATE_DEBUG environment variable to C<1>, you can
-tell L<Mojo::Template> to trace all errors that might occur and present them
-in a very convenient way with context.
+But L<Mojo::Template> will return L<Mojo::Template::Exception> objects that
+stringify to error messages with context.
 
     Template error around line 4.
     -----------------------------------------------------------------
@@ -497,6 +456,11 @@ build a wrapper around it.
 
     my $comment_mark = $mt->comment_mark;
     $mt              = $mt->comment_mark('#');
+
+=head2 C<encoding>
+
+    my $encoding = $mt->encoding;
+    $mt          = $mt->encoding('utf8');
 
 =head2 C<expression_mark>
 

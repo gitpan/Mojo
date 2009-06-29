@@ -7,10 +7,11 @@ use warnings;
 
 use base 'MojoX::Context';
 
-__PACKAGE__->attr(match => (chained => 1));
+__PACKAGE__->attr('match');
 
 # Just make a simple cake. And this time, if someone's going to jump out of
 # it make sure to put them in *after* you cook it.
+sub render { }
 
 1;
 __END__
@@ -41,6 +42,10 @@ L<MojoX::Context> and implements the following new ones.
 =head1 METHODS
 
 L<MojoX::Dispatcher::Routes::Context> inherits all methods from
-L<MojoX::Context>.
+L<MojoX::Context> and implements the following new ones.
+
+=head2 C<render>
+
+    $c->render;
 
 =cut

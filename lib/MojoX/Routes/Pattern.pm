@@ -9,15 +9,13 @@ use base 'Mojo::Base';
 
 use constant DEBUG => $ENV{MOJOX_ROUTES_DEBUG} || 0;
 
-__PACKAGE__->attr(defaults => (chained => 1, default => sub { {} }));
-__PACKAGE__->attr([qw/pattern regex/] => (chained => 1));
-__PACKAGE__->attr(quote_end    => (chained => 1, default => ')'));
-__PACKAGE__->attr(quote_start  => (chained => 1, default => '('));
-__PACKAGE__->attr(reqs         => (chained => 1, default => sub { {} }));
-__PACKAGE__->attr(segments     => (chained => 1, default => 0));
-__PACKAGE__->attr(symbol_start => (chained => 1, default => ':'));
-__PACKAGE__->attr(symbols      => (chained => 1, default => sub { [] }));
-__PACKAGE__->attr(tree         => (chained => 1, default => sub { [] }));
+__PACKAGE__->attr(defaults => (default => sub { {} }));
+__PACKAGE__->attr([qw/format pattern regex/]);
+__PACKAGE__->attr(quote_end   => (default => ')'));
+__PACKAGE__->attr(quote_start => (default => '('));
+__PACKAGE__->attr(reqs        => (default => sub { {} }));
+__PACKAGE__->attr(symbols     => (default => sub { [] }));
+__PACKAGE__->attr(tree        => (default => sub { [] }));
 
 # This is the worst kind of discrimination. The kind against me!
 sub new {
@@ -27,38 +25,14 @@ sub new {
 }
 
 sub match {
-    my ($self, $string) = @_;
+    my ($self, $path) = @_;
+    my $result = $self->shape_match(\$path);
 
-    # Debug
-    if (DEBUG) {
-        my $pattern = $self->pattern || '';
-        warn "    [$pattern]\n";
-    }
+    # Just a partial match
+    return undef if length $path;
 
-    # Nothing to match
-    return $self->defaults unless $self->segments;
-
-    # Compile on demand
-    $self->_compile unless $self->regex;
-
-    my $regex = $self->regex;
-
-    # Debug
-    warn "    $regex\n" if DEBUG;
-
-    # Match
-    if (my @captures = $string =~ $regex) {
-
-        # Merge captures
-        my $result = {%{$self->defaults}};
-        for my $symbol (@{$self->symbols}) {
-            last unless @captures;
-            my $capture = shift @captures;
-            $result->{$symbol} = $capture if $capture;
-        }
-        return $result;
-    }
-    return undef;
+    # Result
+    return $result;
 }
 
 sub parse {
@@ -67,6 +41,10 @@ sub parse {
 
     # Shortcut
     return $self unless $pattern;
+
+    # Format
+    $pattern =~ /\.([^\/]+)$/;
+    $self->format($1) if $1;
 
     # Requirements
     my $reqs = ref $_[0] eq 'HASH' ? $_[0] : {@_};
@@ -103,8 +81,8 @@ sub render {
             $optional = 0;
         }
 
-        # Symbol
-        elsif ($op eq 'symbol') {
+        # Relaxed, symbol or wildcard
+        elsif ($op eq 'relaxed' || $op eq 'symbol' || $op eq 'wildcard') {
             my $name = $token->[1];
             $rendered = $values->{$name} || '';
 
@@ -117,6 +95,45 @@ sub render {
         $string = "$rendered$string";
     }
     return $string;
+}
+
+sub shape_match {
+    my ($self, $pathref) = @_;
+
+    # Debug
+    if (DEBUG) {
+        my $pattern = $self->pattern || '';
+        warn "    [$$pathref] -> [$pattern]\n";
+    }
+
+    # Nothing to match
+    return $self->defaults unless $self->tree->[1];
+
+    # Compile on demand
+    $self->_compile unless $self->regex;
+
+    my $regex = $self->regex;
+
+    # Debug
+    warn "    $regex\n" if DEBUG;
+
+    # Match
+    if (my @captures = $$pathref =~ /$regex/) {
+
+        # Substitute
+        $$pathref =~ s/$regex//;
+
+        # Merge captures
+        my $result = {%{$self->defaults}};
+        for my $symbol (@{$self->symbols}) {
+            last unless @captures;
+            my $capture = shift @captures;
+            $result->{$symbol} = $capture if $capture;
+        }
+        return $result;
+    }
+
+    return undef;
 }
 
 sub _compile {
@@ -148,12 +165,19 @@ sub _compile {
         }
 
         # Symbol
-        elsif ($op eq 'symbol') {
+        elsif ($op eq 'relaxed' || $op eq 'symbol' || $op eq 'wildcard') {
             my $name = $token->[1];
 
             unshift @{$self->symbols}, $name;
 
-            $compiled = '([^\/]+)';
+            # Relaxed
+            if ($op eq 'relaxed') { $compiled = '([^\/]+)' }
+
+            # Symbol
+            elsif ($op eq 'symbol') { $compiled = '([^\/\.]+)' }
+
+            # Wildcard
+            elsif ($op eq 'wildcard') { $compiled = '(.*)' }
 
             my $req = $self->reqs->{$name};
             $compiled = "($req)" if $req;
@@ -170,7 +194,7 @@ sub _compile {
     # Not rooted with a slash
     $regex = "$block$regex" if $block;
 
-    $regex = qr/^$regex$/;
+    $regex = qr/^$regex/;
     $self->regex($regex);
 
     return $self;
@@ -179,47 +203,61 @@ sub _compile {
 sub _tokenize {
     my $self = shift;
 
-    my $pattern      = $self->pattern;
-    my $quote_end    = $self->quote_end;
-    my $quote_start  = $self->quote_start;
-    my $symbol_start = $self->symbol_start;
+    my $pattern     = $self->pattern;
+    my $quote_end   = $self->quote_end;
+    my $quote_start = $self->quote_start;
 
-    my $tree     = [];
-    my $state    = 'text';
-    my $quote    = 0;
-    my $segments = 0;
+    my $tree  = [];
+    my $state = 'text';
 
-    while (my $char = substr $pattern, 0, 1, '') {
+    while (length(my $char = substr $pattern, 0, 1, '')) {
 
         # Quote start
-        if ($char eq $quote_start && !$quote) {
-            $quote = 1;
+        if ($char eq $quote_start) {
+
+            # Upgrade state
+            if ($state eq 'relaxed' || $state eq 'symbol') {
+
+                # Upgrade symbol to relaxed
+                if ($state eq 'symbol') {
+                    $state = 'relaxed';
+                    $tree->[-1]->[0] = 'relaxed';
+                }
+
+                # Upgrade relaxed to wildcard
+                if ($state eq 'relaxed') {
+                    $state = 'wildcard';
+                    $tree->[-1]->[0] = 'wildcard';
+                }
+
+            }
+
+            # Start
+            elsif ($state ne 'wildcard') {
+                $state = 'symbol';
+                push @$tree, ['symbol', ''];
+            }
+
             next;
         }
 
         # Quote end
-        if ($char eq $quote_end && $quote) {
+        if ($char eq $quote_end) {
             $state = 'text';
-            $quote = 0;
             next;
         }
 
         # Slash
         if ($char eq '/') {
-            $segments++;
-
             push @$tree, ['slash'];
             $state = 'text';
         }
 
-        # Symbol start
-        elsif ($char eq $symbol_start) {
-            push @$tree, ['symbol', ''];
-            $state = 'symbol';
-        }
-
-        # Symbol
-        elsif ($state eq 'symbol') {
+        # Relaxed, symbol or wildcard
+        elsif ($state eq 'relaxed'
+            || $state eq 'symbol'
+            || $state eq 'wildcard')
+        {
             $tree->[-1]->[-1] .= $char;
         }
 
@@ -236,10 +274,6 @@ sub _tokenize {
             $tree->[-1]->[-1] .= $char;
         }
     }
-
-    # Cleanup segments
-    $segments-- if $tree->[-1]->[0] eq 'slash' && $segments > 1;
-    $self->segments($segments);
 
     $self->tree($tree);
 
@@ -273,17 +307,17 @@ L<MojoX::Routes::Pattern> is a route pattern container.
 =head2 C<pattern>
 
     my $pattern = $pattern->pattern;
-    $pattern    = $pattern->pattern('/:foo/:bar');
+    $pattern    = $pattern->pattern('/(foo)/(bar)');
 
 =head2 C<quote_end>
 
     my $quote = $pattern->quote_end;
-    $pattern  = $pattern->quote_end(')');
+    $pattern  = $pattern->quote_end(']');
 
 =head2 C<quote_start>
 
     my $quote = $pattern->quote_start;
-    $pattern  = $pattern->quote_start('(');
+    $pattern  = $pattern->quote_start('[');
 
 =head2 C<regex>
 
@@ -294,16 +328,6 @@ L<MojoX::Routes::Pattern> is a route pattern container.
 
     my $reqs = $pattern->reqs;
     $pattern = $pattern->reqs({foo => qr/\w+/});
-
-=head2 C<segments>
-
-    my $segments = $pattern->segments;
-    $pattern     = $pattern->segments(4);
-
-=head2 C<symbol_start>
-
-    my $symbol_start = $pattern->symbol_start;
-    $pattern         = $pattern->symbol_start(':');
 
 =head2 C<symbols>
 
@@ -322,7 +346,7 @@ implements the follwing the ones.
 
 =head2 C<new>
 
-    my $pattern = MojoX::Routes::Pattern->new('/:controller/:action',
+    my $pattern = MojoX::Routes::Pattern->new('/(controller)/(action)',
         action => qr/\w+/
     );
 
@@ -332,11 +356,15 @@ implements the follwing the ones.
 
 =head2 C<parse>
 
-    $pattern = $pattern->parse('/:controller/:action', action => qr/\w+/);
+    $pattern = $pattern->parse('/(controller)/(action)', action => qr/\w+/);
 
 =head2 C<render>
 
     my $string = $pattern->render(action => 'foo');
     my $string = $pattern->render({action => 'foo'});
+
+=head2 C<shape_match>
+
+    my $result = $pattern->shape_match(\$path);
 
 =cut

@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 21;
+use Test::More tests => 35;
 
 use File::Spec;
 use File::Temp;
@@ -15,8 +15,62 @@ use FindBin;
 # like God must feel when he's holding a gun.
 use_ok('Mojo::Template');
 
+# Error handling
+my $mt     = Mojo::Template->new;
+my $output = '';
+$mt->render(<<'EOF', \$output);
+test
+123
+% die 'oops!';
+%= 1 + 1
+test
+EOF
+is(ref $output, 'Mojo::Template::Exception');
+like($output->message, qr/oops\!/);
+is($output->lines_before->[0]->[0], 1);
+is($output->lines_before->[0]->[1], 'test');
+is($output->lines_before->[1]->[0], 2);
+is($output->lines_before->[1]->[1], '123');
+is($output->line->[0],              3);
+is($output->line->[1],              "% die 'oops!';");
+is($output->lines_after->[0]->[0],  4);
+is($output->lines_after->[0]->[1],  '%= 1 + 1');
+is($output->lines_after->[1]->[0],  5);
+is($output->lines_after->[1]->[1],  'test');
+$output->message("oops!\n");
+is("$output", <<'EOF');
+Error around line 3.
+----------------------------------------------------------------------------
+1: test
+2: 123
+3: % die 'oops!';
+4: %= 1 + 1
+5: test
+----------------------------------------------------------------------------
+oops!
+EOF
+
+# Control structures
+$mt     = Mojo::Template->new;
+$output = '';
+$mt->render(<<'EOF', \$output);
+% if (23 > 22) {
+foo
+% }
+% else {
+bar
+% }
+% if (23 > 22) {
+bar
+% }
+% else {
+foo
+% }
+EOF
+is($output, "foo\nbar\n");
+
 # All tags
-my $mt = Mojo::Template->new;
+$mt = Mojo::Template->new;
 $mt->parse(<<'EOF');
 <html foo="bar">
 <%= $_[0] + 1 %> test <%= 2 + 2 %> lala <%# comment lalala %>
@@ -33,7 +87,7 @@ unlike($mt->code, qr/ comment lalala /);
 ok(!defined($mt->compiled));
 $mt->compile;
 is(ref($mt->compiled), 'CODE');
-my $output;
+$output = '';
 $mt->interpret(\$output, 2);
 is($output, "<html foo=\"bar\">\n3 test 4 lala \n4\%\n</html>\n");
 
@@ -117,7 +171,7 @@ $mt     = Mojo::Template->new;
 $output = '';
 $mt->render(<<'EOF', \$output);
 <html><%= do { my $i = '2';
-$i x 4; } %>\
+$i x 4; }; %>\
 </html>\
 EOF
 is($output, "<html>2222</html>");
@@ -157,15 +211,15 @@ $output = '';
 $mt->render_file($file, \$output, 3);
 like($output, qr/23Hello World!/);
 
-# File to file
+# File to file with utf8 data
 $mt = Mojo::Template->new;
 $mt->tag_start('[$-');
 $mt->tag_end('-$]');
 my $dir = File::Temp::tempdir();
 $file = File::Spec->catfile($dir, 'test.mt');
-is($mt->render_to_file(<<'EOF', $file), 1);
-<% my $i = 23 %> foo bar
-baz <%= $i %>
+is($mt->render_to_file(<<"EOF", $file), 1);
+<% my \$i = 23; %> foo bar
+\x{df}\x{0100}bar\x{263a} <%= \$i %>
 test
 EOF
 $mt = Mojo::Template->new;
@@ -174,4 +228,4 @@ is($mt->render_file_to_file($file, $file2), 1);
 $output = '';
 $mt     = Mojo::Template->new;
 $mt->render_file($file2, \$output);
-is($output, " foo bar\nbaz 23\ntest\n");
+is($output, " foo bar\n\x{df}\x{0100}bar\x{263a} 23\ntest\n");

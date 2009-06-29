@@ -11,13 +11,8 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 use Mojo::ByteStream;
 use Mojo::URL;
 
-__PACKAGE__->attr(
-    [qw/leading_slash trailing_slash/] => (
-        chained => 1,
-        default => 0
-    )
-);
-__PACKAGE__->attr(parts => (chained => 1, default => sub { [] }));
+__PACKAGE__->attr([qw/leading_slash trailing_slash/] => (default => 0));
+__PACKAGE__->attr(parts => (default => sub { [] }));
 
 sub new {
     my $self = shift->SUPER::new();
@@ -97,7 +92,7 @@ sub parse {
     for my $part (split '/', $path) {
 
         # Garbage
-        next unless $part;
+        next unless length $part;
 
         # Store
         push @parts, $part;

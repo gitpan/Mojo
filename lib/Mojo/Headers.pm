@@ -10,12 +10,7 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use Mojo::Buffer;
 
-__PACKAGE__->attr(
-    buffer => (
-        chained => 1,
-        default => sub { Mojo::Buffer->new }
-    )
-);
+__PACKAGE__->attr(buffer => (default => sub { Mojo::Buffer->new }));
 
 my @GENERAL_HEADERS = qw/
   Cache-Control
@@ -200,7 +195,7 @@ sub parse {
     $self->buffer->add_chunk(join '', @_) if @_;
 
     # Parse headers
-    $self->state('headers') if $self->is_state('started');
+    $self->state('headers') if $self->is_state('start');
     $self->{__headers} ||= [];
     while (1) {
 

@@ -7,30 +7,24 @@ use warnings;
 
 use base 'Mojo::Base';
 
-use Mojo::Transaction;
 use Mojo::URL;
 
-__PACKAGE__->attr(captures => (chained => 1, default => sub { {} }));
-__PACKAGE__->attr(endpoint => (chained => 1));
-__PACKAGE__->attr(
-    path => (
-        chained => 1,
-        default => sub { shift->tx->req->url->path->to_string }
-    )
-);
-__PACKAGE__->attr(stack => (chained => 1, default => sub { [] }));
-__PACKAGE__->attr(
-    tx => (
-        chained => 1,
-        default => sub { Mojo::Transaction->new }
-    )
-);
+__PACKAGE__->attr(captures => (default => sub { {} }));
+__PACKAGE__->attr('endpoint');
+__PACKAGE__->attr(path  => (default => sub {'/'}));
+__PACKAGE__->attr(stack => (default => sub { [] }));
 
 # I'm Bender, baby, please insert liquor!
 sub new {
     my $self = shift->SUPER::new();
-    $self->tx($_[0]);
+    $self->path($_[0]);
     return $self;
+}
+
+sub is_path_empty {
+    my $self = shift;
+    return 1 if !length $self->path || $self->path eq '/';
+    return 0;
 }
 
 sub url_for {
@@ -149,11 +143,6 @@ L<MojoX::Routes::Match> is a match container.
     my $stack = $match->stack;
     $match    = $match->stack([{foo => 'bar'}]);
 
-=head2 C<tx>
-
-    my $tx = $match->tx;
-    $match = $match->tx(Mojo::Transaction->new);
-
 =head1 METHODS
 
 L<MojoX::Routes::Match> inherits all methods from L<Mojo::Base> and
@@ -162,7 +151,11 @@ implements the follwing the ones.
 =head2 C<new>
 
     my $match = MojoX::Routes::Match->new;
-    my $match = MojoX::Routes::Match->new(Mojo::Transaction->new);
+    my $match = MojoX::Routes::Match->new('/foo/bar');
+
+=head2 C<is_path_empty>
+
+    my $result = $match->is_path_empty;
 
 =head2 C<url_for>
 

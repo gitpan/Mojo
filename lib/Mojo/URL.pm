@@ -11,17 +11,10 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 use Mojo::ByteStream;
 use Mojo::Parameters;
 use Mojo::Path;
+use Socket;
 
-__PACKAGE__->attr(
-    [qw/fragment host password port scheme user/] => (chained => 1));
-__PACKAGE__->attr(base => (chained => 1, default => sub { Mojo::URL->new }));
-__PACKAGE__->attr(path => (chained => 1, default => sub { Mojo::Path->new }));
-__PACKAGE__->attr(
-    query => (
-        chained => 1,
-        default => sub { Mojo::Parameters->new }
-    )
-);
+__PACKAGE__->attr([qw/fragment host password port scheme user/]);
+__PACKAGE__->attr(base => (default => sub { Mojo::URL->new }));
 
 # RFC 3986
 our $UNRESERVED = 'A-Za-z0-9\-\.\_\~';
@@ -35,6 +28,29 @@ sub new {
     my $self = shift->SUPER::new();
     $self->parse(@_);
     return $self;
+}
+
+sub address {
+    my ($self, $address) = @_;
+
+    # Set
+    if ($address) {
+        $self->{address} = $address;
+        $self->host($address) unless $self->host;
+        return $self;
+    }
+
+    # Cached
+    return $self->{address} if $self->{address};
+
+    # Resolve
+    my $host = $self->host;
+    $self->{address} =
+        $host =~ /\b(?:\d{1,3}\.){3}\d{1,3}\b/
+      ? $host
+      : inet_ntoa(inet_aton($host));
+
+    return $self->{address};
 }
 
 sub authority {
@@ -115,6 +131,35 @@ sub parse {
     $self->fragment($fragment);
 
     return $self;
+}
+
+sub path {
+    my ($self, $path) = @_;
+
+    # Set
+    if ($path) {
+        $self->{path} = ref $path ? $path : Mojo::Path->new($path);
+        return $self;
+    }
+
+    # Get
+    $self->{path} ||= Mojo::Path->new;
+    return $self->{path};
+}
+
+sub query {
+    my $self = shift;
+
+    # Set
+    if (@_) {
+        $self->{query} =
+          @_ > 1 ? Mojo::Parameters->new(ref $_[0] ? @{$_[0]} : @_) : $_[0];
+        return $self;
+    }
+
+    # Get
+    $self->{query} ||= Mojo::Parameters->new;
+    return $self->{query};
 }
 
 sub to_abs {
@@ -296,20 +341,10 @@ L<Mojo::URL> implements a subset of RFC 3986 for Uniform Resource Locators.
     my $password = $url->password;
     $url         = $url->password('pass;w0rd');
 
-=head2 C<path>
-
-    my $path = $url->path;
-    $url     = $url->path(Mojo::Path->new);
-
 =head2 C<port>
 
     my $port = $url->port;
     $url     = $url->port(8080);
-
-=head2 C<query>
-
-    my $query = $url->query;
-    $url      = $url->query(Mojo::Parameters->new);
 
 =head2 C<scheme>
 
@@ -340,6 +375,11 @@ following new ones.
     my $url = Mojo::URL->new;
     my $url = Mojo::URL->new('http://127.0.0.1:3000/foo?f=b&baz=2#foo');
 
+=head2 C<address>
+
+    my $address = $url->address;
+    $url        = $url->address('127.0.0.1');
+
 =head2 C<clone>
 
     my $url2 = $url->clone;
@@ -351,6 +391,19 @@ following new ones.
 =head2 C<parse>
 
     $url = $url->parse('http://127.0.0.1:3000/foo/bar?fo=o&baz=23#foo');
+
+=head2 C<path>
+
+    my $path = $url->path;
+    $url     = $url->path('/foo/bar');
+    $url     = $url->path(Mojo::Path->new);
+
+=head2 C<query>
+
+    my $query = $url->query;
+    $url      = $url->query(name => 'value');
+    $url      = $url->query([name => 'value']);
+    $url      = $url->query(Mojo::Parameters->new);
 
 =head2 C<to_abs>
 

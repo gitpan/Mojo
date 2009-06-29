@@ -9,64 +9,31 @@ use base 'Mojo::Base';
 
 use IO::Socket::INET;
 use IO::Select;
-use Mojo;
 use Mojo::Loader;
-use Mojo::Message::Response;
 use Socket;
 
-__PACKAGE__->attr(continue_timeout   => (chained => 1, default => 3));
-__PACKAGE__->attr(keep_alive_timeout => (chained => 1, default => 15));
-__PACKAGE__->attr(select_timeout     => (chained => 1, default => 5));
+__PACKAGE__->attr(continue_timeout   => (default => 3));
+__PACKAGE__->attr(keep_alive_timeout => (default => 15));
+__PACKAGE__->attr(select_timeout     => (default => 5));
 
 sub connect {
     my ($self, $tx) = @_;
 
-    my $req  = $tx->req;
-    my $host = $req->url->host;
-    my $port = $req->url->port || 80;
-
-    # Proxy
-    if (my $proxy = $req->proxy) {
-        $host = $proxy->host;
-        $port = $proxy->port || 80;
-    }
+    my ($scheme, $host, $address, $port) = $tx->client_info;
 
     # Try to get a cached connection
-    my $connection = $self->withdraw_connection("$host:$port");
+    my $connection = $self->withdraw_connection("$scheme:$host:$port");
     $tx->kept_alive(1) if $connection;
 
     # Non blocking connect
     unless ($connection) {
-        $connection = IO::Socket::INET->new(
-            Proto => 'tcp',
-            Type  => SOCK_STREAM
-        );
-
-        # Non blocking
-        $connection->blocking(0);
-
-        my $address = sockaddr_in($port, scalar inet_aton($host));
-        $connection->connect($address);
-        $tx->{connect_timeout} = time + 5;
-
+        $connection = $self->open_connection($scheme, $address, $port);
+        $tx->{_connect_timeout} = time + 5;
     }
     $tx->connection($connection);
-    $tx->state('connect');
 
-    # Connection header
-    unless ($req->headers->connection) {
-        if ($tx->keep_alive || $tx->kept_alive) {
-            $req->headers->connection('Keep-Alive');
-        }
-        else {
-            $req->headers->connection('Close');
-        }
-    }
-
-    # We identify ourself
-    my $version = $Mojo::VERSION;
-    $req->headers->user_agent("Mozilla/5.0 (compatible; Mojo/$version; Perl)")
-      unless $req->headers->user_agent;
+    # State machine
+    $tx->client_connect;
 
     return $tx;
 }
@@ -74,14 +41,11 @@ sub connect {
 sub disconnect {
     my ($self, $tx) = @_;
 
-    my $req  = $tx->req;
-    my $host = $req->url->host;
-    my $port = $req->url->port || 80;
-    my $peer = "$host:$port";
+    my ($scheme, $host, $address, $port) = $tx->client_info;
 
     # Deposit connection for later or kill socket
     $tx->keep_alive
-      ? $self->deposit_connection($peer, $tx->connection)
+      ? $self->deposit_connection("$scheme:$host:$port", $tx->connection)
       : $tx->connection(undef);
 
     return $tx;
@@ -101,6 +65,23 @@ sub deposit_connection {
         return 1;
     }
     return 0;
+}
+
+sub open_connection {
+    my ($self, $scheme, $address, $port) = @_;
+
+    my $connection = IO::Socket::INET->new(
+        Proto => 'tcp',
+        Type  => SOCK_STREAM
+    );
+
+    # Non blocking
+    $connection->blocking(0);
+
+    my $sin = sockaddr_in($port, inet_aton($address));
+    $connection->connect($sin);
+
+    return $connection;
 }
 
 # Marge, I'm going to Moe's. Send the kids to the neighbors,
@@ -167,30 +148,28 @@ sub spin {
     my $done = 0;
     for my $tx (@transactions) {
 
-        # Check for request/response errors
-        $tx->error('Request error.')  if $tx->req->has_error;
-        $tx->error('Response error.') if $tx->res->has_error;
+        # Sanity check
+        if ($tx->has_error) {
+            $done++;
+            next;
+        }
 
         # Connect transaction
         $self->connect($tx) if $tx->is_state('start');
 
         # Check connect status
         if (!$tx->connection->connected) {
-            if (time > $tx->{connect_timeout}) {
-                $tx->error("Can't connect to peer before timeout");
+            if (time > $tx->{_connect_timeout}) {
+                $tx->error("Couldn't connect to peer before timeout.");
                 $done++;
             }
             next;
         }
+
+        # Connected
         elsif ($tx->is_state('connect')) {
 
-            # We might have to handle 100 Continue
-            $tx->{_continue} = $self->continue_timeout
-              if ($tx->req->headers->expect || '') =~ /100-continue/;
-
-            # Ready for next state
-            $tx->state('write_start_line');
-            $tx->{_to_write} = $tx->req->start_line_length;
+            $tx->continue_timeout($self->continue_timeout);
 
             # Store connection information
             my ($lport, $laddr) = sockaddr_in(getsockname($tx->connection));
@@ -199,41 +178,17 @@ sub spin {
             my ($rport, $raddr) = sockaddr_in(getpeername($tx->connection));
             $tx->remote_address(inet_ntoa($raddr));
             $tx->remote_port($rport);
+
+            # State machine
+            $tx->client_connected;
         }
+
+        # State machine
+        $tx->client_spin;
 
         # Map
         my $name = $self->_socket_name($tx->connection);
         $transaction{$name} = $tx;
-
-        # Request start line written
-        if ($tx->is_state('write_start_line')) {
-            if ($tx->{_to_write} <= 0) {
-                $tx->state('write_headers');
-                $tx->{_offset}   = 0;
-                $tx->{_to_write} = $tx->req->header_length;
-            }
-        }
-
-        # Request headers written
-        if ($tx->is_state('write_headers')) {
-            if ($tx->{_to_write} <= 0) {
-                $tx->{_continue}
-                  ? $tx->state('read_continue')
-                  : $tx->state('write_body');
-                $tx->{_offset}   = 0;
-                $tx->{_to_write} = $tx->req->body_length;
-            }
-        }
-
-        # 100 Continue timeout
-        if ($tx->is_state('read_continue')) {
-            $tx->state('write_body') unless $tx->{_continue};
-        }
-
-        # Request body written
-        if ($tx->is_state('write_body')) {
-            $tx->state('read_response') if $tx->{_to_write} <= 0;
-        }
 
         # Done?
         if ($tx->is_done) {
@@ -260,9 +215,7 @@ sub spin {
         push @read_select, $connection;
 
         # Write sockets
-        if ($tx->is_state(qw/write_start_line write_headers write_body/)) {
-            push @write_select, $connection;
-        }
+        push @write_select, $connection if ($tx->is_writing);
 
         $waiting++;
     }
@@ -278,16 +231,6 @@ sub spin {
       IO::Select->select($read_select, $write_select, undef,
         $self->select_timeout);
 
-    # Make sure we don't wait longer than 5 seconds for a 100 Continue
-    for my $tx (@transactions) {
-        next unless $tx->{_continue};
-        my $continue = $tx->{_continue};
-        $tx->{_started} ||= time;
-        $continue -= time - $tx->{_started};
-        $continue = 0 if $continue < 0;
-        $tx->{_continue} = $continue;
-    }
-
     $read  ||= [];
     $write ||= [];
 
@@ -300,38 +243,29 @@ sub spin {
     # Write
     if ($do == 1) {
 
-        my ($tx, $req, $chunk);
+        my ($tx, $chunk);
 
-        # Check for content
+        # Check for content randomly
         for my $connection (sort { int(rand(3)) - 1 } @$write) {
 
             my $name = $self->_socket_name($connection);
-            $tx  = $transaction{$name};
-            $req = $tx->req;
+            $tx = $transaction{$name};
 
-            # Body
-            $chunk = $req->get_body_chunk($tx->{_offset} || 0)
-              if $tx->is_state('write_body');
-
-            # Headers
-            $chunk = $req->get_header_chunk($tx->{_offset} || 0)
-              if $tx->is_state('write_headers');
-
-            # Start line
-            $chunk = $req->get_start_line_chunk($tx->{_offset} || 0)
-              if $tx->is_state('write_start_line');
+            $chunk = $tx->client_get_chunk;
 
             # Content generator ready?
             last if defined $chunk;
         }
 
+        # Nothing to write
+        return $done unless $chunk;
+
         # Write chunk
         my $written = $tx->connection->syswrite($chunk, length $chunk);
-        $tx->error("Can't write request: $!") unless defined $written;
+        $tx->error("Can't write to socket: $!") unless defined $written;
         return 1 if $tx->has_error;
 
-        $tx->{_to_write} -= $written;
-        $tx->{_offset} += $written;
+        $tx->client_written($written);
     }
 
     # Read
@@ -340,43 +274,13 @@ sub spin {
         my $connection = $read->[rand(@$read)];
         my $name       = $self->_socket_name($connection);
         my $tx         = $transaction{$name};
-        my $res        = $tx->res;
-
-        # Early response, most likely an error
-        $tx->state('read_response')
-          if $tx->is_state(qw/write_start_line write_headers write_body/);
 
         my $buffer;
         my $read = $connection->sysread($buffer, 1024, 0);
         $tx->error("Can't read from socket: $!") unless defined $read;
         return 1 if $tx->has_error;
 
-        # Read 100 Continue
-        if ($tx->is_state('read_continue')) {
-            $res->done if $read == 0;
-            $res->parse($buffer);
-
-            # We got a 100 Continue response
-            if ($res->is_done && $res->code == 100) {
-                $tx->res(Mojo::Message::Response->new);
-                $tx->continued(1);
-                $tx->{_continue} = 0;
-            }
-
-            # We got something else
-            elsif ($res->is_done) {
-                $tx->res($res);
-                $tx->continued(0);
-                $tx->done;
-            }
-        }
-
-        # Read response
-        elsif ($tx->is_state('read_response')) {
-            $tx->done if $read == 0;
-            $res->parse($buffer);
-            $tx->done if $res->is_done;
-        }
+        $tx->client_read($buffer);
     }
 
     return $done;
@@ -478,6 +382,10 @@ following new ones.
 =head2 C<deposit_connection>
 
     $client->deposit_connection($name, $connection, $timeout);
+
+=head2 C<open_connection>
+
+    my $connection = $client->open_connection($scheme, $address, $port);
 
 =head2 C<process>
 

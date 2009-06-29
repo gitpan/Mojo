@@ -39,8 +39,18 @@ sub startup {
         }
     );
 
+    # Renderer for a different file extension
+    $self->renderer->add_handler(xpl => $self->renderer->handler->{epl});
+
+    # Default handler
+    $self->renderer->default_handler('epl');
+
     # Routes
     my $r = $self->routes;
+
+    # /test3 - no class, just a namespace
+    $r->route('/test3')
+      ->to(namespace => 'MojoliciousTestController', method => 'index');
 
     # /test2 - different namespace test
     $r->route('/test2')->to(
@@ -50,7 +60,7 @@ sub startup {
     );
 
     # /*/* - the default route
-    $r->route('/:controller/:action')->to(action => 'index');
+    $r->route('/(controller)/(action)')->to(action => 'index');
 }
 
 1;

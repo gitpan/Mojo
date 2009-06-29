@@ -9,7 +9,7 @@ use base 'Mojo::Server';
 
 use IO::Select;
 
-__PACKAGE__->attr(nph => (chained => 1, default => 0));
+__PACKAGE__->attr(nph => (default => 0));
 
 # Lisa, you're a Buddhist, so you believe in reincarnation.
 # Eventually, Snowball will be reborn as a higher lifeform... like a snowman.
@@ -55,7 +55,9 @@ sub run {
             last unless length $chunk;
 
             # Start line
+            return unless STDOUT->opened;
             my $written = STDOUT->syswrite($chunk);
+            return unless defined $written;
             $offset += $written;
         }
     }
@@ -78,7 +80,9 @@ sub run {
         last unless length $chunk;
 
         # Headers
+        return unless STDOUT->opened;
         my $written = STDOUT->syswrite($chunk);
+        return unless defined $written;
         $offset += $written;
     }
 
@@ -97,7 +101,9 @@ sub run {
         last unless length $chunk;
 
         # Content
+        return unless STDOUT->opened;
         my $written = STDOUT->syswrite($chunk);
+        return unless defined $written;
         $offset += $written;
     }
 

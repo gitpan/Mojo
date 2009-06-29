@@ -7,8 +7,8 @@ use warnings;
 
 use base 'Mojo::Base';
 
-__PACKAGE__->attr(app => (chained => 1, weak => 1));
-__PACKAGE__->attr(tx => (chained => 1));
+__PACKAGE__->attr(app => (weak => 1));
+__PACKAGE__->attr('tx');
 
 # This is my first visit to the Galaxy of Terror and I'd like it to be a pleasant one.
 sub req { return shift->tx->req }
@@ -22,10 +22,10 @@ sub stash {
     $self->{stash} ||= {};
 
     # Hash
-    return $self->{stash} unless $_[0];
+    return $self->{stash} unless @_;
 
     # Get
-    return $self->{stash}->{$_[0]} unless $_[1] || ref $_[0];
+    return $self->{stash}->{$_[0]} unless defined $_[1] || ref $_[0];
 
     # Set
     my $values = exists $_[1] ? {@_} : $_[0];

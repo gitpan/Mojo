@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 29;
+use Test::More tests => 35;
 
 use FindBin;
 use lib "$FindBin::Bin/lib";
@@ -22,8 +22,14 @@ use_ok('MojoliciousTest');
 
 my $client = Mojo::Client->new;
 
+# SyntaxError::foo
+my $tx = Mojo::Transaction->new_get('/syntax_error/foo');
+$client->process_local('MojoliciousTest', $tx);
+is($tx->res->code, 500);
+like($tx->res->body, qr/Missing right curly/);
+
 # Foo::test
-my $tx = Mojo::Transaction->new_get('/foo/test', 'X-Test' => 'Hi there!');
+$tx = Mojo::Transaction->new_get('/foo/test', 'X-Test' => 'Hi there!');
 $client->process_local('MojoliciousTest', $tx);
 is($tx->res->code,                        200);
 is($tx->res->headers->header('X-Bender'), 'Kiss my shiny metal ass!');
@@ -34,7 +40,7 @@ $tx = Mojo::Transaction->new_get('/foo', 'X-Test' => 'Hi there!');
 $client->process_local('MojoliciousTest', $tx);
 is($tx->res->code,                  200);
 is($tx->res->headers->content_type, 'text/html');
-like($tx->res->body, qr/Hello Mojo from the template \/foo! Hello World!/);
+like($tx->res->body, qr/<body>\n23Hello Mojo from the template \/foo! He/);
 
 # Foo::Bar::index
 $tx = Mojo::Transaction->new_get('/foo-bar', 'X-Test' => 'Hi there!');
@@ -64,6 +70,13 @@ $client->process_local('MojoliciousTest', $tx);
 is($tx->res->code,                        200);
 is($tx->res->headers->header('X-Bender'), 'Kiss my shiny metal ass!');
 like($tx->res->body, qr/\/test2/);
+
+# MojoliciousTestController::index
+$tx = Mojo::Transaction->new_get('/test3', 'X-Test' => 'Hi there!');
+$client->process_local('MojoliciousTest', $tx);
+is($tx->res->code,                        200);
+is($tx->res->headers->header('X-Bender'), 'Kiss my shiny metal ass!');
+like($tx->res->body, qr/No class works!/);
 
 # 404
 $tx = Mojo::Transaction->new_get('/', 'X-Test' => 'Hi there!');
@@ -108,3 +121,7 @@ $tx->req->headers->header('If-Modified-Since', $mtime);
 $client->process_local('MojoliciousTest', $tx);
 is($tx->res->code, 304, 'Setting If-Modified-Since triggers 304');
 $ENV{MOJO_MODE} = $backup;
+
+# Make sure we can override attributes with constructor arguments
+my $app = MojoliciousTest->new({mode => 'test'});
+is($app->mode, 'test');

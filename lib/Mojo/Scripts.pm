@@ -10,13 +10,8 @@ use base 'Mojo::Script';
 use Mojo::ByteStream;
 use Mojo::Loader;
 
-__PACKAGE__->attr(
-    [qw/base namespace/] => (
-        chained => 1,
-        default => 'Mojo::Script'
-    )
-);
-__PACKAGE__->attr(message => (chained => 1, default => <<'EOF'));
+__PACKAGE__->attr([qw/base namespace/] => (default => 'Mojo::Script'));
+__PACKAGE__->attr(message              => (default => <<'EOF'));
 Welcome to the Mojo Framework!
 
 HINT: In case you don't know what you are doing here try the manual!
@@ -39,13 +34,32 @@ sub run {
     if ($script) {
         my $module =
           $self->namespace . '::' . Mojo::ByteStream->new($script)->camelize;
-        Mojo::Loader->new->base($self->base)->load_build($module)->run(@args);
+        my $loader = Mojo::Loader->new->base($self->base);
+        my $e      = $loader->load_build($module);
+
+        # Exception
+        if (ref $e eq 'Mojo::Loader::Exception') {
+
+            # Module missing
+            die qq/Script "$script" missing, maybe you need to install it?\n/
+              if "$e" =~ /^Can't locate /;
+
+            # Real error
+            die $e;
+        }
+
+        # Run
+        $e->run(@args);
         return $self;
     }
 
     # Load scripts
-    my $instances =
-      Mojo::Loader->new($self->namespace)->base($self->base)->load->build;
+    my $loader = Mojo::Loader->new($self->namespace)->base($self->base);
+    my $e      = $loader->load;
+    die $e if $e;
+    $e = $loader->build;
+    die $e if ref $e eq 'Mojo::Loader::Exception';
+    my $instances = $e;
 
     # Print overview
     print $self->message;

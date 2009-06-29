@@ -10,7 +10,7 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 
 require Time::Local;
 
-__PACKAGE__->attr(epoch => (chained => 1));
+__PACKAGE__->attr('epoch');
 
 sub new {
     my $self = shift->SUPER::new();
@@ -83,8 +83,18 @@ sub parse {
     # Invalid format
     else { return undef }
 
-    $self->epoch(
-        Time::Local::timegm($second, $minute, $hour, $day, $month, $year));
+    my $epoch;
+
+    # Prevent crash
+    eval {
+        $epoch =
+          Time::Local::timegm($second, $minute, $hour, $day, $month, $year);
+    };
+
+    return undef if $@;
+
+    $self->epoch($epoch);
+
     return $self;
 }
 

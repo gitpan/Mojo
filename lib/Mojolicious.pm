@@ -8,51 +8,26 @@ use warnings;
 use base 'Mojo';
 
 use Mojo::Loader;
-use Mojolicious::Dispatcher;
 use Mojolicious::Renderer;
+use MojoX::Dispatcher::Routes;
 use MojoX::Dispatcher::Static;
 use MojoX::Types;
+use Time::HiRes ();
 
+__PACKAGE__->attr(ctx_class => (default => 'Mojolicious::Context'));
 __PACKAGE__->attr(
-    ctx_class => (
-        chained => 1,
-        default => 'Mojolicious::Context'
-    )
-);
+    mode => (default => sub { ($ENV{MOJO_MODE} || 'development') }));
 __PACKAGE__->attr(
-    mode => (
-        chained => 1,
-        default => sub { ($ENV{MOJO_MODE} || 'development') }
-    )
-);
+    renderer => (default => sub { Mojolicious::Renderer->new }));
 __PACKAGE__->attr(
-    renderer => (
-        chained => 1,
-        default => sub { Mojolicious::Renderer->new }
-    )
-);
+    routes => (default => sub { MojoX::Dispatcher::Routes->new }));
 __PACKAGE__->attr(
-    routes => (
-        chained => 1,
-        default => sub { Mojolicious::Dispatcher->new }
-    )
-);
-__PACKAGE__->attr(
-    static => (
-        chained => 1,
-        default => sub { MojoX::Dispatcher::Static->new }
-    )
-);
-__PACKAGE__->attr(
-    types => (
-        chained => 1,
-        default => sub { MojoX::Types->new }
-    )
-);
+    static => (default => sub { MojoX::Dispatcher::Static->new }));
+__PACKAGE__->attr(types => (default => sub { MojoX::Types->new }));
 
 # The usual constructor stuff
 sub new {
-    my $self = shift->SUPER::new();
+    my $self = shift->SUPER::new(@_);
 
     # Namespace
     $self->routes->namespace(ref $self);
@@ -94,22 +69,49 @@ sub build_ctx {
 sub dispatch {
     my ($self, $c) = @_;
 
+    # New request
+    my $path = $c->req->url->path;
+    $self->log->debug(qq/*** Request for "$path". ***/);
+
     # Try to find a static file
-    my $done = $self->static->dispatch($c);
+    my $e = $self->static->dispatch($c);
 
     # Use routes if we don't have a response yet
-    $done ||= $self->routes->dispatch($c);
+    $e = $self->routes->dispatch($c) if $e;
+
+    # Exception
+    if (ref $e) {
+
+        # Development mode
+        if ($self->mode eq 'development') {
+            $c->stash(exception => $e);
+            $c->res->code(500);
+            $c->render(template => 'exception.html');
+        }
+
+        # Production mode
+        else { $self->static->serve_500($c) }
+    }
 
     # Nothing found
-    $self->static->serve_404($c) unless $done;
+    elsif ($e) { $self->static->serve_404($c) }
 }
 
 # Bite my shiny metal ass!
 sub handler {
     my ($self, $tx) = @_;
 
+    # Start timer
+    my $start = [Time::HiRes::gettimeofday()];
+
     # Build context and dispatch
     $self->dispatch($self->build_ctx($tx));
+
+    # End timer
+    my $elapsed = sprintf '%f',
+      Time::HiRes::tv_interval($start, [Time::HiRes::gettimeofday()]);
+    my $rps = $elapsed == 0 ? '??' : sprintf '%.3f', 1 / $elapsed;
+    $self->log->debug("Request took $elapsed seconds ($rps/s).");
 
     return $tx;
 }
@@ -133,7 +135,7 @@ Mojolicious - Web Framework
 
         my $r = $self->routes;
 
-        $r->route('/:controller/:action')
+        $r->route('/(controller)/(action)')
           ->to(controller => 'foo', action => 'bar');
     }
 

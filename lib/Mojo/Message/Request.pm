@@ -10,8 +10,8 @@ use base 'Mojo::Message';
 use Mojo::Cookie::Request;
 use Mojo::Parameters;
 
-__PACKAGE__->attr(method => (chained => 1, default => 'GET'));
-__PACKAGE__->attr(url => (chained => 1, default => sub { Mojo::URL->new }));
+__PACKAGE__->attr(method => (default => 'GET'));
+__PACKAGE__->attr(url => (default => sub { Mojo::URL->new }));
 
 sub cookies {
     my $self = shift;
@@ -185,7 +185,10 @@ sub _parse_env {
             $self->headers->content_length($value);
         }
 
-        # Path
+        # Path is a special case on some servers
+        elsif ($name eq 'REQUEST_URI') {
+            $self->url->parse($value);
+        }
         elsif ($name eq 'PATH_INFO') {
             $self->url->path->parse($value);
         }
@@ -223,8 +226,14 @@ sub _parse_env {
 sub _parse_start_line {
     my $self = shift;
 
-    # We have a full request line
     my $line = $self->buffer->get_line;
+
+    # Ignore any leading empty lines
+    while ((defined $line) && ($line =~ m/^\s*$/)) {
+        $line = $self->buffer->get_line;
+    }
+
+    # We have a (hopefully) full request line
     if (defined $line) {
         if ($line =~ /
             ^\s*                                                          # Start
@@ -249,6 +258,10 @@ sub _parse_start_line {
                 $self->major_version(0);
                 $self->minor_version(9);
                 $self->done;
+
+                # HTTP 0.9 has no headers or body and does not support
+                # pipelining
+                $self->buffer->empty;
             }
         }
         else { $self->error('Parser error: Invalid request line') }

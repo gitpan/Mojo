@@ -11,13 +11,12 @@ use base 'Mojolicious::Controller';
 # Let me check my program... Yep.
 sub index {
     my $self = shift;
-    $self->stash(msg => 'Hello World!');
-    $self->render;
+    $self->stash(layout => 'default', msg => 'Hello World!');
 }
 
 sub templateless {
     my $self = shift;
-    $self->render(format => 'test');
+    $self->render(handler => 'test');
 }
 
 sub test {

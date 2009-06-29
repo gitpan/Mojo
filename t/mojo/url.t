@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 56;
+use Test::More tests => 58;
 
 # I don't want you driving around in a car you built yourself.
 # You can sit there complaining, or you can knit me some seat belts.
@@ -32,6 +32,8 @@ is($url->query,    'monkey=biz&foo=1');
 is($url->fragment, '23');
 is("$url",
     'http://sri:foobar@kraih.com:8080/test/index.html?monkey=biz&foo=1#23');
+$url->path('/index.xml');
+is("$url", 'http://sri:foobar@kraih.com:8080/index.xml?monkey=biz&foo=1#23');
 
 # Parameters
 $url = Mojo::URL->new(
@@ -46,6 +48,8 @@ is($url->query,    '_monkey=biz%3B&_monkey=23');
 is_deeply($url->query->to_hash, {_monkey => ['biz;', 23]});
 is($url->fragment, '23');
 is("$url", 'http://sri:foobar@kraih.com:8080?_monkey=biz%3B&_monkey=23#23');
+$url->query(monkey => 'foo');
+is("$url", 'http://sri:foobar@kraih.com:8080?monkey=foo#23');
 
 # Query string
 $url = Mojo::URL->new(
@@ -89,7 +93,7 @@ is($url->to_abs,         'http://kraih.com/bar/baz/../foo?foo=bar#23');
 is($url->to_abs->to_rel, '../foo?foo=bar#23');
 is($url->to_abs->base,   'http://kraih.com/bar/baz/');
 
-# Real world test
+# Real world tests
 $url = Mojo::URL->new('http://acme.s3.amazonaws.com'
       . '/mojo%2Fg%2B%2B-4%2E2_4%2E2%2E3-2ubuntu7_i386%2Edeb');
 is($url->is_abs,   1);

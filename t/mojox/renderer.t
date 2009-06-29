@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 2;
+use Test::More tests => 3;
 
 use Mojo;
 use MojoX::Context;
@@ -22,12 +22,19 @@ $r->add_handler(
         $$output .= 'Hello Mojo!';
     }
 );
-$c->stash->{partial} = 1;
+$c->stash->{partial}  = 1;
+$c->stash->{template} = 'something';
+$c->stash->{format}   = 'something';
 
 # Normal rendering
-$c->stash->{format} = 'debug';
+$c->stash->{handler} = 'debug';
 is($r->render($c), 'Hello Mojo!', 'normal rendering');
 
-# Unrecognized format
-$c->stash->{format} = 'not_defined';
-is($r->render($c), undef, 'return undef for unrecognized format');
+# Rendering a path with dots
+$c->stash->{template} = 'some.path.with.dots/template';
+$c->stash->{handler}  = 'debug';
+is($r->render($c), 'Hello Mojo!', 'rendering a path with dots');
+
+# Unrecognized handler
+$c->stash->{handler} = 'not_defined';
+is($r->render($c), undef, 'return undef for unrecognized handler');

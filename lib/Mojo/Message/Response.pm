@@ -10,7 +10,7 @@ use base 'Mojo::Message';
 use Mojo::Cookie::Response;
 use Mojo::Date;
 
-__PACKAGE__->attr([qw/code message/] => (chained => 1));
+__PACKAGE__->attr([qw/code message/]);
 
 # Umarked codes are from RFC 2616 (mostly taken from LWP)
 my %MESSAGES = (
@@ -109,17 +109,39 @@ sub fix_headers {
     return $self;
 }
 
+sub is_status_class {
+    my ($self, $class) = @_;
+    return 1 if ($self->code >= $class && $self->code < ($class + 100));
+    return 0;
+}
+
 sub parse {
     my $self = shift;
 
     # Buffer
     $self->buffer->add_chunk(join '', @_) if @_;
 
+    return $self->_parse(0);
+}
+
+sub parse_until_body {
+    my $self = shift;
+
+    # Buffer
+    $self->buffer->add_chunk(join '', @_) if @_;
+
+    return $self->_parse(1);
+}
+
+sub _parse {
+    my $self = shift;
+    my $until_body = @_ ? shift : 0;
+
     # Start line
     $self->_parse_start_line if $self->is_state('start');
 
     # Pass through
-    return $self->SUPER::parse();
+    return $self->SUPER::_parse($until_body);
 }
 
 sub _build_start_line {
@@ -158,6 +180,7 @@ sub _parse_start_line {
             $self->major_version(0);
             $self->minor_version(9);
             $self->state('content');
+            $self->content->relaxed(1);
             return 1;
         }
     }
@@ -243,8 +266,16 @@ implements the following new ones.
 
     $res = $res->fix_headers;
 
+=head2 C<is_status_class>
+
+    my $is_2xx = $res->is_status_class(200);
+
 =head2 C<parse>
 
     $res = $res->parse('HTTP/1.1 200 OK');
+
+=head2 C<parse_until_body>
+
+    $res = $res->parse_until_body('HTTP/1.1 200 OK');
 
 =cut

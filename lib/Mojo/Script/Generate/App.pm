@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Script';
 
-__PACKAGE__->attr(description => (chained => 1, default => <<'EOF'));
+__PACKAGE__->attr(description => (default => <<'EOF'));
 * Generate application directory structure. *
 Takes a name as option, by default MyMojoApp will be used.
     generate app TestApp
@@ -78,7 +78,7 @@ implements the following new ones.
 __DATA__
 __mojo__
 % my $class = shift;
-#!<%= $^X %>
+#!/usr/bin/perl
 
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
@@ -115,6 +115,8 @@ use strict;
 use warnings;
 
 use base 'Mojo';
+
+our $VERSION = '0.1';
 
 sub handler {
     my ($self, $tx) = @_;

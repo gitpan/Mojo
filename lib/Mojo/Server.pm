@@ -14,26 +14,25 @@ use constant RELOAD => $ENV{MOJO_RELOAD} || 0;
 
 __PACKAGE__->attr(
     app => (
-        chained => 1,
-        default => sub { Mojo::Loader->load_build(shift->app_class) }
+        default => sub {
+            my $e = Mojo::Loader->load_build(shift->app_class);
+            die $e if ref $e eq 'Mojo::Loader::Exception';
+            return $e;
+        }
     )
 );
 __PACKAGE__->attr(
-    app_class => (
-        chained => 1,
-        default => sub { $ENV{MOJO_APP} ||= 'Mojo::HelloWorld' }
-    )
-);
+    app_class => (default => sub { $ENV{MOJO_APP} ||= 'Mojo::HelloWorld' }));
 __PACKAGE__->attr(
     build_tx_cb => (
-        chained => 1,
         default => sub {
             return sub {
                 my $self = shift;
 
                 # Reload
                 if (RELOAD) {
-                    Mojo::Loader->reload;
+                    my $e = Mojo::Loader->reload;
+                    warn $e if $e;
                     delete $self->{app};
                 }
 
@@ -44,11 +43,13 @@ __PACKAGE__->attr(
 );
 __PACKAGE__->attr(
     continue_handler_cb => (
-        chained => 1,
         default => sub {
             return sub {
                 my ($self, $tx) = @_;
-                $tx->res->code(100);
+                if ($self->app->can('continue_handler')) {
+                    $self->app->continue_handler($tx);
+                }
+                else { $tx->res->code(100) }
                 return $tx;
             };
         }
@@ -56,7 +57,6 @@ __PACKAGE__->attr(
 );
 __PACKAGE__->attr(
     handler_cb => (
-        chained => 1,
         default => sub {
             return sub {
                 my ($self, $tx) = @_;

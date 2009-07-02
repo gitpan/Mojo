@@ -18,7 +18,7 @@ __PACKAGE__->attr(home => (default => sub { Mojo::Home->new }));
 __PACKAGE__->attr(log  => (default => sub { Mojo::Log->new }));
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.991232';
+our $VERSION = '0.991233';
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -32,7 +32,11 @@ sub new {
     return $self;
 }
 
-sub build_tx { return Mojo::Transaction->new }
+sub build_tx {
+    my $tx = Mojo::Transaction->new;
+    $tx->res->headers->header('X-Powered-By' => 'Mojo (Perl)');
+    return $tx;
+}
 
 sub handler { Carp::croak('Method "handler" not implemented in subclass') }
 
@@ -54,8 +58,6 @@ Mojo - The Web In A Box!
         $tx->res->code(200);
         $tx->res->headers->content_type('text/plain');
         $tx->res->body('Congratulations, your Mojo is working!');
-
-        return $tx;
     }
 
 =head1 DESCRIPTION

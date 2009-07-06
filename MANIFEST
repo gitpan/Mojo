@@ -136,12 +136,10 @@ t/mojolicious/templates/foo/bar/index.html.xpl
 t/mojolicious/templates/foo/index.html.xpl
 t/mojolicious/templates/layouts/default.html.epl
 t/mojox/context.t
-t/mojox/dispatcher/persistent_error.t
 t/mojox/dispatcher/routes.t
 t/mojox/renderer.t
 t/mojox/routes/pattern.t
 t/mojox/routes/routes.t
 t/pod.t
 t/pod_coverage.t
-TODO
 META.yml                                 Module meta-data (added by MakeMaker)

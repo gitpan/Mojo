@@ -15,7 +15,7 @@ use Mojo::Loader::Exception;
 use constant DEBUG => $ENV{MOJO_LOADER_DEBUG} || 0;
 
 __PACKAGE__->attr([qw/base namespace/]);
-__PACKAGE__->attr(modules => (default => sub { [] }));
+__PACKAGE__->attr('modules', default => sub { [] });
 
 my $STATS = {};
 
@@ -53,7 +53,8 @@ sub build {
             my $instance = $module->new(@_);
             push @instances, $instance;
         };
-        return Mojo::Loader::Exception->new($@) if $@ && $@ ne "SHORTCUT\n";
+        return Mojo::Loader::Exception->new($module, $@)
+          if $@ && $@ ne "SHORTCUT\n";
     }
 
     return \@instances;
@@ -71,7 +72,7 @@ sub load {
 
         # Load
         eval "require $module";
-        return Mojo::Loader::Exception->new($@) if $@;
+        return Mojo::Loader::Exception->new($module, $@) if $@;
     }
 
     return 0;
@@ -119,7 +120,7 @@ sub reload {
 
             # Reload
             eval { require $key };
-            return Mojo::Loader::Exception->new($@) if $@;
+            return Mojo::Loader::Exception->new($key, $@) if $@;
 
             $STATS->{$file} = $mtime;
         }

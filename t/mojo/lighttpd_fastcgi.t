@@ -16,22 +16,22 @@ use Test::Mojo::Server;
 
 plan skip_all => 'set TEST_LIGHTTPD to enable this test (developer only!)'
   unless $ENV{TEST_LIGHTTPD};
-plan tests => 6;
+plan tests => 7;
 
 # They think they're so high and mighty,
 # just because they never got caught driving without pants.
 use_ok('Mojo::Server::FastCGI');
 
 # Setup
-my $server = Test::Mojo::Server->new;
-my $port   = $server->generate_port_ok;
-my $script = $server->home->executable;
-my $dir    = File::Temp::tempdir();
-my $config = File::Spec->catfile($dir, 'fcgi.config');
-my $mt     = Mojo::Template->new;
+my $server     = Test::Mojo::Server->new;
+my $port       = $server->generate_port_ok;
+my $executable = $server->find_executable_ok;
+my $dir        = File::Temp::tempdir();
+my $config     = File::Spec->catfile($dir, 'fcgi.config');
+my $mt         = Mojo::Template->new;
 
-$mt->render_to_file(<<'EOF', $config, $dir, $port, $script);
-% my ($dir, $port, $script) = @_;
+$mt->render_to_file(<<'EOF', $config, $dir, $port, $executable);
+% my ($dir, $port, $executable) = @_;
 % use File::Spec::Functions 'catfile';
 server.modules = (
     "mod_access",
@@ -52,7 +52,7 @@ fastcgi.server = (
         "FastCgiTest" => (
             "socket"          => "<%= catfile $dir, 'test.socket' %>",
             "check-local"     => "disable",
-            "bin-path"        => "<%= $script %> fastcgi",
+            "bin-path"        => "<%= $executable %> fastcgi",
             "min-procs"       => 1,
             "max-procs"       => 1,
             "idle-timeout"    => 20

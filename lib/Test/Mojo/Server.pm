@@ -213,11 +213,11 @@ sub _find_executable {
     for (1 .. 5) {
         push @uplevel, '..';
 
-        # executable in bin directory
+        # App executable in bin directory
         $path = File::Spec->catfile(@base, @uplevel, 'bin', $name);
         last if -f $path;
 
-        # "mojo" in bin directory
+        # Custom executable in bin directory
         $path =
           File::Spec->catfile(@base, @uplevel, 'bin', $self->executable);
         last if -f $path;
@@ -227,7 +227,7 @@ sub _find_executable {
     return $path if -f $path;
 
     # Not found
-    return undef;
+    return;
 }
 
 sub _generate_port {
@@ -301,6 +301,8 @@ Test::Mojo::Server - Server Tests
 L<Mojo::Test::Server> is a test harness for server tests.
 
 =head1 ATTRIBUTES
+
+L<Mojo::Test::Server> implements the following attribute.
 
 =head2 C<command>
 

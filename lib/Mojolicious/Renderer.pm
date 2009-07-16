@@ -7,6 +7,7 @@ use warnings;
 
 use base 'MojoX::Renderer';
 
+use File::Spec;
 use Mojo::Template;
 
 # What do you want?
@@ -18,22 +19,57 @@ sub new {
         epl => sub {
             my ($self, $c, $output) = @_;
 
-            my $path = $c->stash->{template_path};
+            my $template = $c->stash->{template};
+            my $path =
+              File::Spec->catfile($c->app->renderer->root, $template);
+
+            # Shortcut
+            unless (-r $path) {
+                $c->app->log->error(
+                    qq/Template "$template" missing or not readable./);
+                return;
+            }
 
             # Check cache
             $self->{_mt_cache} ||= {};
             my $mt = $self->{_mt_cache}->{$path};
 
+            my $success;
+
+            # Interpret again
+            if ($mt) { $success = $mt->interpret($output, $c) }
+
             # No cache
-            unless ($mt) {
+            else {
 
                 # Initialize
                 $mt = $self->{_mt_cache}->{$path} = Mojo::Template->new;
-                return $mt->render_file($path, $output, $c);
+                $success = $mt->render_file($path, $output, $c);
             }
 
-            # Interpret again
-            $mt->interpret($output, $c);
+            # Exception
+            if (!$success && $c->app->mode eq 'development') {
+
+                # Exception template failed
+                if ($c->stash->{exception}) {
+                    $c->app->log->error(
+                        "Exception template error:\n$$output");
+                    return $success;
+                }
+
+                # Log
+                $c->app->log->error(
+                    qq/Template error in "$template": $$output/);
+
+                # Render exception template
+                $c->stash(exception => $$output);
+                $c->res->code(500);
+                $c->res->body(
+                    $c->render(partial => 1, template => 'exception.html'));
+                return 1;
+            }
+
+            return $success;
         }
     );
     return $self;

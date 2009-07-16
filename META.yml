@@ -1,35 +1,47 @@
 --- #YAML:1.0
-name:                Mojo
-version:             0.991236
-abstract:            ~
-license:             perl
-author:              
+name:               Mojo
+version:            0.991237
+abstract:           ~
+author:
     - Sebastian Riedel <sri@cpan.org>
-generated_by:        ExtUtils::MakeMaker version 6.42
-distribution_type:   module
-requires:     
-    Carp:                          0
-    Cwd:                           0
-    Data::Dumper:                  0
-    Digest::MD5:                   0
-    Encode:                        0
-    File::Basename:                0
-    File::Copy:                    0
-    File::Path:                    0
-    File::Spec:                    0
-    File::Spec::Functions:         0
-    File::Temp:                    0
-    FindBin:                       0
-    IO::File:                      0
-    IO::Select:                    0
-    IO::Socket:                    0
-    MIME::Base64:                  0
-    MIME::QuotedPrint:             0
-    POSIX:                         0
-    Test::Builder::Module:         0
-    Test::Harness:                 0
-    Test::More:                    0
-    Time::HiRes:                   0
+license:            perl
+distribution_type:  module
+configure_requires:  {}
+build_requires:  {}
+requires:
+    Carp:                 0
+    Cwd:                  0
+    Data::Dumper:         0
+    Digest::MD5:          0
+    Encode:               0
+    File::Basename:       0
+    File::Copy:           0
+    File::Path:           0
+    File::Spec:           0
+    File::Spec::Functions:  0
+    File::Temp:           0
+    FindBin:              0
+    IO::File:             0
+    IO::Poll:             0
+    IO::Socket:           0
+    MIME::Base64:         0
+    MIME::QuotedPrint:    0
+    POSIX:                0
+    Test::Builder::Module:  0
+    Test::Harness:        0
+    Test::More:           0
+    Time::HiRes:          0
+resources:
+    homepage:     http://mojolicious.org
+    license:      http://dev.perl.org/licenses/
+    MailingList:  http://lists.kraih.com/cgi-bin/mailman/listinfo
+    repository:   http://github.com/kraih/mojo/tree/master
+no_index:
+    directory:
+        - t
+        - inc
+        - t
+generated_by:       ExtUtils::MakeMaker version 6.54
 meta-spec:
-    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
-    version: 1.3
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4

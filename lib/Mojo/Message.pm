@@ -11,12 +11,10 @@ use bytes;
 
 use Carp 'croak';
 use Mojo::Buffer;
-use Mojo::ByteStream;
 use Mojo::Content;
 use Mojo::File::Memory;
 use Mojo::Parameters;
 use Mojo::Upload;
-use Mojo::URL;
 
 __PACKAGE__->attr('buffer', default => sub { Mojo::Buffer->new });
 __PACKAGE__->attr([qw/parser_progress_cb/]);
@@ -169,7 +167,7 @@ sub cookie {
     my ($self, $name) = @_;
 
     # Shortcut
-    return undef unless $name;
+    return unless $name;
 
     # Map
     unless ($self->{_cookies}) {
@@ -267,10 +265,10 @@ sub param {
 
 # Please don't eat me! I have a wife and kids. Eat them!
 sub parse {
-    my $self = shift;
+    my ($self, $chunk) = @_;
 
     # Buffer
-    $self->buffer->add_chunk(join '', @_) if @_;
+    $self->buffer->add_chunk($chunk) if $chunk;
 
     return $self->_parse(0);
 }
@@ -329,7 +327,7 @@ sub upload {
     my ($self, $name) = @_;
 
     # Shortcut
-    return undef unless $name;
+    return unless $name;
 
     # Map
     unless ($self->{_uploads}) {
@@ -513,16 +511,10 @@ implements the following new ones.
     my $major_version = $message->major_version;
     $message          = $message->major_version(1);
 
-Returns the major version of the HTTP specification being followed.
-Defaults to 1.
-
 =head2 C<minor_version>
 
     my $minor_version = $message->minor_version;
     $message          = $message->minor_version(1);
-
-Returns the minor version of the HTTP specification being followed.
-Defaults to 1.
 
 =head2 C<parser_progress_cb>
 
@@ -554,9 +546,6 @@ the following new ones.
 
     my $success = $message->at_least_version('1.1');
 
-Returns true if the HTTP version is greater than or equal to the version
-passed in.
-
 =head2 C<body>
 
     my $string = $message->body;
@@ -576,33 +565,23 @@ passed in.
 
     my $params = $message->body_params;
 
-Returns a L<Mojo::Parameters> object, containing POST parameters.
-
 =head2 C<to_string>
 
 =head2 C<build>
 
     my $string = $message->build;
 
-Returns the complete HTTP message.
-
 =head2 C<build_body>
 
     my $string = $message->build_body;
-
-Returns the HTTP message body.
 
 =head2 C<build_headers>
 
     my $string = $message->build_headers;
 
-Returns the HTTP message headers.
-
 =head2 C<build_start_line>
 
     my $string = $message->build_start_line;
-
-Returns the HTTP start line.
 
 =head2 C<cookie>
 
@@ -612,9 +591,6 @@ Returns the HTTP start line.
 =head2 C<fix_headers>
 
     $message = $message->fix_headers;
-
-Returns the invocant and makes sure all required headers for the currently
-followed HTTP version are set.
 
 =head2 C<get_body_chunk>
 
@@ -662,12 +638,8 @@ followed HTTP version are set.
     my $upload  = $message->upload('foo');
     my @uploads = $message->upload('foo');
 
-Returns a L<Mojo::Upload> object or a arrayref of L<Mojo::Upload> objects.
-
 =head2 C<uploads>
 
     my $uploads = $message->uploads;
-
-Returns a arrayref of L<Mojo::Upload> objects.
 
 =cut

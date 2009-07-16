@@ -166,7 +166,7 @@ sub header {
 
     # Get
     my $headers;
-    return undef unless $headers = $self->{_headers}->{lc $name};
+    return unless $headers = $self->{_headers}->{lc $name};
 
     # String
     unless (wantarray) {
@@ -185,7 +185,8 @@ sub header {
     return @$headers;
 }
 
-sub host { shift->header('Host', @_) }
+sub host     { shift->header('Host',     @_) }
+sub location { shift->header('Location', @_) }
 
 sub names {
     my $self = shift;
@@ -246,7 +247,7 @@ sub parse {
             return $self->buffer;
         }
     }
-    return undef;
+    return;
 }
 
 sub proxy_authorization { shift->header('Proxy-Authorization', @_) }
@@ -336,6 +337,11 @@ implements the following new ones.
     my $host = $headers->host;
     $headers = $headers->host('127.0.0.1');
 
+=head2 C<location>
+
+    my $location = $headers->location;
+    $headers     = $headers->location('http://127.0.0.1/foo');
+
 =head2 C<proxy_authorization>
 
     my $proxy_authorization = $headers->proxy_authorization;
@@ -388,9 +394,6 @@ the following new ones.
 =head2 C<add>
 
     $headers = $headers->add('Content-Type', 'text/plain');
-
-Returns the invocant.
-Appends a new line to the header.
 
 =head2 C<to_string>
 

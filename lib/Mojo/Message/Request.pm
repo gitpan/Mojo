@@ -7,6 +7,7 @@ use warnings;
 
 use base 'Mojo::Message';
 
+use Mojo::ByteStream 'b';
 use Mojo::Cookie::Request;
 use Mojo::Parameters;
 
@@ -52,7 +53,7 @@ sub fix_headers {
 
         # Basic proxy authorization
         if (my $userinfo = $proxy->userinfo) {
-            my $auth = Mojo::ByteStream->new("$userinfo")->b64_encode;
+            my $auth = b("$userinfo")->b64_encode;
             $self->headers->proxy_authorization("Basic $auth");
         }
     }
@@ -76,11 +77,13 @@ sub params {
 sub parse {
     my $self = shift;
 
-    # CGI like environment
-    $self->_parse_env(shift) if ref $_[0] eq 'HASH';
+    # CGI like environment?
+    my $env;
+    if   (exists $_[1]) { $env = {@_} }
+    else                { $env = $_[0] if ref $_[0] eq 'HASH' }
 
-    # Buffer
-    $self->buffer->add_chunk(join '', @_) if @_;
+    # Parse CGI like environment or add chunk
+    $env ? $self->_parse_env($env) : $self->buffer->add_chunk(shift);
 
     # Start line
     $self->_parse_start_line if $self->is_state('start');
@@ -305,14 +308,9 @@ implements the following new ones.
 
     my $params = $req->params;
 
-Returns a L<Mojo::Parameters> object, containing both GET and POST
-parameters.
-
 =head2 C<query_params>
 
     my $params = $req->query_params;
-
-Returns a L<Mojo::Parameters> object, containing GET parameters.
 
 =head2 C<url>
 
@@ -340,6 +338,7 @@ implements the following new ones.
 =head2 C<parse>
 
     $req = $req->parse('GET /foo/bar HTTP/1.1');
+    $req = $req->parse(REQUEST_METHOD => 'GET');
     $req = $req->parse({REQUEST_METHOD => 'GET'});
 
 =head2 C<proxy>
@@ -347,11 +346,5 @@ implements the following new ones.
     my $proxy = $req->proxy;
     $req      = $req->proxy('http://foo:bar@127.0.0.1:3000');
     $req      = $req->proxy( Mojo::URL->new('http://127.0.0.1:3000')  );
-
-Returns a L<Mojo::URL> object representing the HTTP proxy to be used if
-called without arguments.
-Returns the invocant if called with arguments.
-Expects a L<Mojo::URL> object or a string.
-Defaults to the C<HTTP_PROXY> environment variable.
 
 =cut

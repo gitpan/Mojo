@@ -8,7 +8,7 @@ use warnings;
 use base 'Mojo::Server';
 
 use Carp 'croak';
-use IO::Select;
+use IO::Poll qw/POLLERR POLLHUP POLLIN POLLOUT/;
 use IO::Socket;
 use Mojo::Pipeline;
 
@@ -38,6 +38,7 @@ sub listen {
     # Non blocking
     $self->{listen}->blocking(0);
 
+    # Log
     $self->app->log->info("Server started (http://127.0.0.1:$port)");
 
     # Friendly message
@@ -49,6 +50,7 @@ sub listen {
 sub run {
     my $self = shift;
 
+    # Signals
     $SIG{HUP} = $SIG{PIPE} = 'IGNORE';
 
     # Listen
@@ -61,33 +63,42 @@ sub run {
 sub spin {
     my $self = shift;
 
+    # Default poll instance
+    $self->{_poll} ||= IO::Poll->new;
+
+    # Prepare
     $self->_prepare_connections;
     $self->_prepare_transactions;
-    my ($reader, $writer) = $self->_prepare_select;
+    $self->_prepare_poll;
 
-    # Select
-    my ($read, $write, undef) =
-      IO::Select->select($reader, $writer, undef, 5);
-    $read  ||= [];
-    $write ||= [];
+    # Poll
+    my $poll = $self->{_poll};
+    $poll->poll(5);
+    my @readers = $poll->handles(POLLIN | POLLHUP | POLLERR);
+    my @writers = $poll->handles(POLLOUT);
 
     # Make a random decision about reading or writing
     my $do = -1;
-    $do = 0 if @$read;
-    $do = 1 if @$write;
-    $do = int(rand(3)) - 1 if @$read && @$write;
+    $do = 0 if @readers;
+    $do = 1 if @writers;
+    $do = int(rand(3)) - 1 if @readers && @writers;
 
     # Read
-    if ($do == 0) { $self->_read($read) }
+    if ($do == 0) { $self->_read(\@readers) }
 
     # Write
-    elsif ($do == 1) { $self->_write($write) }
+    elsif ($do == 1) { $self->_write(\@writers) }
 
 }
 
 sub _drop_connection {
     my ($self, $name) = @_;
+
+    # Cleanup
+    $self->{_poll}->remove($self->{_connections}->{$name}->{socket});
     close $self->{_connections}->{$name}->{socket};
+
+    # Remove
     delete $self->{_reverse}->{$self->{_connections}->{$name}};
     delete $self->{_connections}->{$name};
 }
@@ -119,6 +130,7 @@ sub _handle {
 sub _prepare_connections {
     my $self = shift;
 
+    # Initialize
     $self->{_accepted}    ||= [];
     $self->{_connections} ||= {};
 
@@ -138,21 +150,24 @@ sub _prepare_connections {
         $self->{_reverse}->{$accept->{socket}} = $name;
         $self->{_connections}->{$name} = $accept;
     }
+
+    # Accepted
     $self->{_accepted} = [@accepted];
 }
 
-sub _prepare_select {
+sub _prepare_poll {
     my $self = shift;
 
-    my @read    = ();
+    my $poll    = $self->{_poll};
     my $clients = keys %{$self->{_connections}};
 
-    # Select listen socket if we get the lock on it
+    # Add listen socket if we get the lock on it
     if (($clients < $self->max_clients) && $self->accept_lock(!$clients)) {
-        @read = ($self->{listen});
+        $poll->mask($self->{listen}, POLLIN);
     }
 
-    my @write = ();
+    # Remove listen otherwise
+    else { $poll->remove($self->{listen}) }
 
     # Sort read/write handles and timeouts
     for my $name (keys %{$self->{_connections}}) {
@@ -178,22 +193,15 @@ sub _prepare_select {
             }
 
             # Keep alive
-            else { unshift @read, $connection->{socket} }
+            else { $poll->mask($connection->{socket}, POLLIN) }
             next;
         }
 
         # We always try to read as sugegsted by the HTTP spec
-        unshift @read, $p->connection;
-
-        # Write
-        unshift @write, $p->connection if $p->is_writing;
+        $p->is_writing
+          ? $poll->mask($p->connection, POLLIN | POLLOUT)
+          : $poll->mask($p->connection, POLLIN);
     }
-
-    # Prepare select
-    my $reader = IO::Select->new(@read);
-    my $writer = @write ? IO::Select->new(@write) : undef;
-
-    return $reader, $writer;
 }
 
 sub _prepare_transactions {
@@ -258,15 +266,13 @@ sub _read {
         $self->accept_unlock;
         return 0 unless $socket;
         push @{$self->{_accepted}},
-          { requests => 0,
-            socket   => $socket,
-            time     => time
-          };
+          {requests => 0, socket => $socket, time => time};
         return 1;
     }
 
     return 0 unless my $name = $self->_socket_name($socket);
 
+    # No pipeline yet
     my $connection = $self->{_connections}->{$name};
     unless ($connection->{pipeline}) {
 
@@ -314,6 +320,7 @@ sub _read {
     # Read
     $p->server_read($buffer);
 
+    # Time
     $connection->{time} = time;
 }
 
@@ -324,8 +331,9 @@ sub _socket_name {
     return $self->{_reverse}->{$s} if $self->{_reverse}->{$s};
 
     # Connected?
-    return undef unless $s->connected;
+    return unless $s->connected;
 
+    # Generate
     return
         unpack('H*', $s->sockaddr)
       . $s->sockport
@@ -340,15 +348,21 @@ sub _write {
 
     # Check for content
     for my $socket (sort { int(rand(3)) - 1 } @$sockets) {
+
+        # Shortcut
         next unless $name = $self->_socket_name($socket);
+
         my $connection = $self->{_connections}->{$name};
         $p = $connection->{pipeline};
 
+        # Get chunk
         $chunk = $p->server_get_chunk;
 
         # Content generator ready?
         last if defined $chunk;
     }
+
+    # No name
     return 0 unless $name;
 
     # Nothing to write
@@ -357,12 +371,15 @@ sub _write {
     # Connected?
     return 0 unless $p->connection->connected;
 
+    # Write
     my $written = $p->connection->syswrite($chunk, length $chunk);
     $p->error("Can't write request: $!") unless defined $written;
     return 1 if $p->has_error;
 
+    # Written
     $p->server_written($written);
 
+    # Time
     $self->{_connections}->{$name}->{time} = time;
 }
 

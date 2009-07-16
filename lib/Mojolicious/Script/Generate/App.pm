@@ -102,7 +102,7 @@ __500__
 </html>
 __mojo__
 % my $class = shift;
-#!/usr/bin/perl
+#!/usr/bin/env perl -w
 
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
@@ -113,20 +113,16 @@ use FindBin;
 
 use lib "$FindBin::Bin/lib";
 use lib "$FindBin::Bin/../lib";
-use lib "$FindBin::Bin/../../lib";
 
 $ENV{MOJO_APP} = '<%= $class %>';
 
 # Check if Mojo is installed
 eval 'use Mojolicious::Scripts';
-if ($@) {
-    print <<EOF;
+die <<EOF if $@;
 It looks like you don't have the Mojo Framework installed.
 Please visit http://mojolicious.org for detailed installation instructions.
 
 EOF
-    exit;
-}
 
 # Start the script system
 my $scripts = Mojolicious::Scripts->new;
@@ -186,7 +182,7 @@ __static__
 </html>
 __test__
 % my $class = shift;
-#!perl
+#!/usr/bin/env perl -w
 
 use strict;
 use warnings;
@@ -202,31 +198,46 @@ my $client = Mojo::Client->new;
 my $tx     = Mojo::Transaction->new_get('/');
 
 # Process request
-$client->process_local('<%= $class %>', $tx);
+$client->process_app('<%= $class %>', $tx);
 
 # Test response
 is($tx->res->code, 200);
 is($tx->res->headers->content_type, 'text/html');
 like($tx->res->content->file->slurp, qr/Mojolicious Web Framework/i);
 __exception__
+% use Data::Dumper ();
+% use Mojo::ByteStream 'b';
 % my $self = shift;
-% my $e = $self->stash('exception');
-This page was generated from the template
-"templates/exception.html.epl".
-<pre><%= $e->message %></pre>
-<pre>
+% my $s = $self->stash;
+% my $e = delete $s->{exception};
+<!html>
+<head><title>Exception</title></head>
+    <body>
+        This page was generated from the template
+        "templates/exception.html.epl".
+        <pre><%= $e->message %></pre>
+        <pre>
 % for my $line (@{$e->lines_before}) {
-    <%= $line->[0] %>: <%= $line->[1] %>
+    <%= $line->[0] %>: <%= b($line->[1])->html_encode %>
 % }
 % if ($e->line->[0]) {
-    <%= $e->line->[0] %>: <%= $e->line->[1] %>
+    <b><%= $e->line->[0] %>: <%= b($e->line->[1])->html_encode %></b>
 % }
 % for my $line (@{$e->lines_after}) {
-    <%= $line->[0] %>: <%= $line->[1] %>
+    <%= $line->[0] %>: <%= b($line->[1])->html_encode %>
 % }
-</pre>
-% use Data::Dumper;
-<pre><%= Dumper $self->stash %></pre>
+        </pre>
+        <pre>
+% for my $frame (@{$e->stack}) {
+<%= b($frame->[1])->html_encode %>: <%= $frame->[2] %>
+% }
+        </pre>
+        <pre>
+%= b(Data::Dumper->new([$s])->Indent(1)->Terse(1)->Dump)->html_encode
+        </pre>
+    </body>
+</html>
+% $s->{exception} = $e;
 __layout__
 % my $self = shift;
 <!doctype html>

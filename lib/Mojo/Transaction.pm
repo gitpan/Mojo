@@ -12,7 +12,7 @@ use Mojo::Message::Response;
 
 __PACKAGE__->attr([qw/connection continued kept_alive/]);
 __PACKAGE__->attr([qw/local_address local_port remote_address remote_port/]);
-__PACKAGE__->attr('continue_timeout', default => 3);
+__PACKAGE__->attr('continue_timeout', default => 5);
 __PACKAGE__->attr('req', default => sub { Mojo::Message::Request->new });
 __PACKAGE__->attr('res', default => sub { Mojo::Message::Response->new });
 
@@ -67,7 +67,7 @@ sub client_get_chunk {
         # End
         if (defined $chunk && !length $chunk) {
             $self->state('read_response');
-            return undef;
+            return;
         }
     }
 
@@ -105,7 +105,7 @@ sub client_leftovers {
     my $self = shift;
 
     # No leftovers
-    return undef unless $self->is_state('done_with_leftovers');
+    return unless $self->is_state('done_with_leftovers');
 
     # Leftovers
     my $leftovers = $self->res->leftovers;
@@ -336,7 +336,7 @@ sub server_get_chunk {
             $self->req->is_state('done_with_leftovers')
               ? $self->state('done_with_leftovers')
               : $self->state('done');
-            return undef;
+            return;
         }
     }
 
@@ -604,16 +604,10 @@ implements the following new ones.
     my $req = $tx->req;
     $tx     = $tx->req(Mojo::Message::Request->new);
 
-Returns a L<Mojo::Message::Request> object if called without arguments.
-Returns the invocant if called with arguments.
-
 =head2 C<res>
 
     my $res = $tx->res;
     $tx     = $tx->res(Mojo::Message::Response->new);
-
-Returns a L<Mojo::Message::Response> object if called without arguments.
-Returns the invocant if called with arguments.
 
 =head1 METHODS
 

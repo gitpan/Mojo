@@ -7,7 +7,7 @@ use warnings;
 
 use base 'MojoX::Routes';
 
-use Mojo::ByteStream;
+use Mojo::ByteStream 'b';
 use Mojo::Loader;
 use Mojo::Loader::Exception;
 
@@ -30,8 +30,7 @@ sub dispatch {
     # Initialize stash with captures
     my %captures = %{$match->captures};
     foreach my $key (keys %captures) {
-        $captures{$key} =
-          Mojo::ByteStream->new($captures{$key})->url_unescape->to_string;
+        $captures{$key} = b($captures{$key})->url_unescape->to_string;
     }
     $c->stash({%captures});
 
@@ -60,7 +59,7 @@ sub generate_class {
             next unless $part;
 
             # Camelize
-            push @class, Mojo::ByteStream->new($part)->camelize;
+            push @class, b($part)->camelize;
         }
         $class = join '::', @class;
     }
@@ -70,7 +69,7 @@ sub generate_class {
     $class = length $class ? "${namespace}::$class" : $namespace;
 
     # Invalid
-    return undef unless $class =~ /^[a-zA-Z0-9_:]+$/;
+    return unless $class =~ /^[a-zA-Z0-9_:]+$/;
 
     return $class;
 }
@@ -88,11 +87,11 @@ sub generate_method {
     $method ||= $field->{action};
 
     # Shortcut for disallowed methods
-    return undef if $self->{_disallow}->{$method};
-    return undef if index($method, '_') == 0;
+    return if $self->{_disallow}->{$method};
+    return if index($method, '_') == 0;
 
     # Invalid
-    return undef unless $method =~ /^[a-zA-Z0-9_:]+$/;
+    return unless $method =~ /^[a-zA-Z0-9_:]+$/;
 
     return $method;
 }
@@ -129,26 +128,25 @@ sub walk_stack {
 
         # Load class
         $self->{_loaded} ||= {};
-        my $e = 0;
         unless ($self->{_loaded}->{$class}) {
-            $e = Mojo::Loader->new->load($class);
-            $self->{_loaded}->{$class}++ unless $e;
-        }
 
-        # Load error
-        if ($e && $e->loaded) {
-            $c->app->log->debug($e);
-            return $e;
-        }
+            # Load
+            if (my $e = Mojo::Loader->load($class)) {
 
-        # Check class
-        eval {
-            die
-              unless $class->isa('MojoX::Dispatcher::Routes::Controller');
-        };
+                # Doesn't exist
+                return 1 unless ref $e;
+
+                # Error
+                $c->app->log->error($e);
+                return $e;
+            }
+
+            # Loaded
+            $self->{_loaded}->{$class}++;
+        }
 
         # Not a conroller
-        if ($@) {
+        unless ($class->isa('MojoX::Dispatcher::Routes::Controller')) {
             $c->app->log->debug(qq/"$class" is not a controller./);
             return 1;
         }
@@ -159,8 +157,8 @@ sub walk_stack {
 
         # Controller error
         if ($@) {
-            my $e = Mojo::Loader::Exception->new($class, $@);
-            $c->app->log->debug($e);
+            my $e = ref $@ ? $@ : Mojo::Loader::Exception->new($@);
+            $c->app->log->error($e);
             return $e;
         }
 
@@ -213,14 +211,14 @@ implements the follwing the ones.
 
 =head2 C<dispatch>
 
-    my $exception = $dispatcher->dispatch(
+    my $e = $dispatcher->dispatch(
         MojoX::Dispatcher::Routes::Context->new
     );
-    my $exception = $dispatcher->dispatch(
+    my $e = $dispatcher->dispatch(
         MojoX::Dispatcher::Routes::Context->new,
         MojoX::Routes::Match->new
     );
-    my $exception = $dispatcher->dispatch(
+    my $e = $dispatcher->dispatch(
         MojoX::Dispatcher::Routes::Context->new,
         '/foo/bar/baz'
     );
@@ -239,6 +237,6 @@ implements the follwing the ones.
 
 =head2 C<walk_stack>
 
-    my $exception = $dispatcher->walk_stack($c);
+    my $e = $dispatcher->walk_stack($c);
 
 =cut

@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Base';
 
-__PACKAGE__->attr('ctx');
+__PACKAGE__->attr('ctx', weak => 1);
 
 # If we don't go back there and make that event happen,
 # the entire universe will be destroyed...
@@ -30,11 +30,11 @@ L<MojoX::Dispatcher::Routes::Controller> is a controller base class.
 
 =head1 ATTRIBUTES
 
+L<MojoX::Dispatcher::Routes::Controller> implements the following attributes.
+
 =head2 C<ctx>
 
     my $c = $controller->ctx;
-
-Returns a L<MojoX::Dispatcher::Routes::Context> object.
 
 =head1 METHODS
 

@@ -1,11 +1,31 @@
-#!perl
+#!/usr/bin/env perl -w
 
 # Copyright (C) 2008-2009, Sebastian Riedel.
+
+package MyTemplateExporter;
 
 use strict;
 use warnings;
 
-use Test::More tests => 35;
+sub import {
+    my $caller = caller;
+    no strict 'refs';
+    *{$caller . '::foo'} = sub {'works!'};
+}
+
+package MyTemplateException;
+
+use strict;
+use warnings;
+
+sub exception { die 'ohoh' }
+
+package main;
+
+use strict;
+use warnings;
+
+use Test::More tests => 62;
 
 use File::Spec;
 use File::Temp;
@@ -15,9 +35,109 @@ use FindBin;
 # like God must feel when he's holding a gun.
 use_ok('Mojo::Template');
 
-# Error handling
+# Strict
 my $mt     = Mojo::Template->new;
 my $output = '';
+$mt->render(<<'EOF', \$output);
+% $foo = 1;
+EOF
+is(ref $output, 'Mojo::Template::Exception');
+like($output->message, qr/^Global symbol "\$foo" requires/);
+
+# Importing into a template
+$mt     = Mojo::Template->new;
+$output = '';
+$mt->render(<<'EOF', \$output);
+% BEGIN { MyTemplateExporter->import }
+%= __PACKAGE__
+%= foo
+EOF
+is($output, 'Mojo::Templateworks!');
+$mt->render(<<'EOF', \$output);
+% BEGIN { MyTemplateExporter->import }
+%= __PACKAGE__
+%= foo
+EOF
+is($output, 'Mojo::Templateworks!');
+
+# Compile time exception
+$mt     = Mojo::Template->new;
+$output = '';
+$mt->render(<<'EOF', \$output);
+test
+123
+% {
+%= 1 + 1
+test
+EOF
+is(ref $output, 'Mojo::Template::Exception');
+like($output->message, qr/^Missing right curly or square bracket/);
+is($output->lines_before->[0]->[0], 3);
+is($output->lines_before->[0]->[1], '% {');
+is($output->lines_before->[1]->[0], 4);
+is($output->lines_before->[1]->[1], '%= 1 + 1');
+is($output->line->[0],              5);
+is($output->line->[1],              'test');
+$output->message("oops!\n");
+$output->stack([['Foo', 'foo', 23], ['Bar', 'bar', 24]]);
+my $backup = $ENV{MOJO_EXCEPTION_VERBOSE};
+$ENV{MOJO_EXCEPTION_VERBOSE} = 0;
+is("$output", <<'EOF');
+Error around line 5.
+3: % {
+4: %= 1 + 1
+5: test
+oops!
+EOF
+$ENV{MOJO_EXCEPTION_VERBOSE} = 1;
+is("$output", <<'EOF');
+Error around line 5.
+3: % {
+4: %= 1 + 1
+5: test
+foo: 23
+bar: 24
+oops!
+EOF
+$ENV{MOJO_EXCEPTION_VERBOSE} = $backup;
+
+# Exception in module
+$mt     = Mojo::Template->new;
+$output = '';
+$mt->render(<<'EOF', \$output);
+test
+123
+%= MyTemplateException->exception
+%= 1 + 1
+test
+EOF
+is(ref $output, 'Mojo::Template::Exception');
+like($output->message, qr/ohoh/);
+is($output->lines_before->[0]->[0], 1);
+is($output->lines_before->[0]->[1], 'test');
+is($output->lines_before->[1]->[0], 2);
+is($output->lines_before->[1]->[1], '123');
+is($output->line->[0],              3);
+is($output->line->[1],              '%= MyTemplateException->exception');
+is($output->lines_after->[0]->[0],  4);
+is($output->lines_after->[0]->[1],  '%= 1 + 1');
+is($output->lines_after->[1]->[0],  5);
+is($output->lines_after->[1]->[1],  'test');
+$output->message("oops!\n");
+$output->stack([]);
+is("$output", <<'EOF');
+Error around line 3.
+1: test
+2: 123
+3: %= MyTemplateException->exception
+4: %= 1 + 1
+5: test
+oops!
+EOF
+
+# Excpetion in template
+$mt     = Mojo::Template->new;
+$output = '';
 $mt->render(<<'EOF', \$output);
 test
 123
@@ -38,15 +158,14 @@ is($output->lines_after->[0]->[1],  '%= 1 + 1');
 is($output->lines_after->[1]->[0],  5);
 is($output->lines_after->[1]->[1],  'test');
 $output->message("oops!\n");
+$output->stack([]);
 is("$output", <<'EOF');
 Error around line 3.
-----------------------------------------------------------------------------
 1: test
 2: 123
 3: % die 'oops!';
 4: %= 1 + 1
 5: test
-----------------------------------------------------------------------------
 oops!
 EOF
 

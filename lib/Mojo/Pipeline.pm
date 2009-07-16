@@ -127,7 +127,7 @@ sub client_leftovers {
     my $previous = $self->{_reader} - 1;
 
     # No previous reader
-    return undef unless $previous >= 0;
+    return unless $previous >= 0;
 
     # Leftovers
     return $self->{_txs}->[$previous]->client_leftovers;
@@ -184,7 +184,9 @@ sub is_writing {
 
 sub keep_alive {
     my $self = shift;
-    return $self->{_txs}->[0] ? $self->{_txs}->[0]->keep_alive(@_) : undef;
+    return $self->{_txs}->[$self->{_writer}]
+      ? $self->{_txs}->[$self->{_writer}]->keep_alive(@_)
+      : $self->{_txs}->[-1]->keep_alive(@_);
 }
 
 sub req {
@@ -250,7 +252,7 @@ sub server_leftovers {
     my $last = $self->{_txs}->[-1];
 
     # No leftovers
-    return undef unless $last->req->is_state('done_with_leftovers');
+    return unless $last->req->is_state('done_with_leftovers');
 
     # Leftovers
     my $leftovers = $last->req->leftovers;
@@ -435,11 +437,6 @@ implements the following new ones.
 
     my $safe_post = $p->safe_post;
     $p            = $p->safe_post(1);
-
-Returns true or false if called without arguments.
-Returns the invocant if called with arguments.
-If set to true, a pipeline will wait until the responses to previous
-requests are received before sending a POST.
 
 =head1 METHODS
 

@@ -7,7 +7,7 @@ use warnings;
 
 use base 'Mojo::Base';
 
-use Carp;
+use Carp 'croak';
 use Mojo::Loader;
 
 use constant RELOAD => $ENV{MOJO_RELOAD} || 0;
@@ -15,9 +15,14 @@ use constant RELOAD => $ENV{MOJO_RELOAD} || 0;
 __PACKAGE__->attr(
     'app',
     default => sub {
-        my $e = Mojo::Loader->load_build(shift->app_class);
-        die $e if ref $e eq 'Mojo::Loader::Exception';
-        return $e;
+        my $self = shift;
+
+        # Load
+        if (my $e = Mojo::Loader->load($self->app_class)) {
+            die $e if ref $e;
+        }
+
+        return $self->app_class->new;
     }
 );
 __PACKAGE__->attr('app_class',
@@ -30,8 +35,7 @@ __PACKAGE__->attr(
 
             # Reload
             if (RELOAD) {
-                my $e = Mojo::Loader->reload;
-                warn $e if $e;
+                if (my $e = Mojo::Loader->reload) { warn $e }
                 delete $self->{app};
             }
 
@@ -46,20 +50,21 @@ __PACKAGE__->attr(
             my ($self, $tx) = @_;
             if ($self->app->can('continue_handler')) {
                 $self->app->continue_handler($tx);
+
+                # Close connection to prevent potential race condition
+                unless ($tx->res->code == 100) {
+                    $tx->keep_alive(0);
+                    $tx->res->headers->connection('Close');
+                }
             }
             else { $tx->res->code(100) }
-            return $tx;
         };
     }
 );
 __PACKAGE__->attr(
     'handler_cb',
     default => sub {
-        return sub {
-            my ($self, $tx) = @_;
-            $self->app->handler($tx);
-            return $tx;
-        };
+        sub { shift->app->handler(shift) }
     }
 );
 
@@ -103,34 +108,20 @@ Mojo::Server - HTTP Server Base Class
 =head1 DESCRIPTION
 
 L<Mojo::Server> is a HTTP server base class.
-Subclasses should implement their own C<run> method.
-
-The usual request cycle is like this.
-
-    1. Build a new Mojo::Transaction objct with ->build_tx_cb
-    2. Read request information from client
-    3. Put request information into the transaction object
-    4. Call ->handler_cb to build a response
-    5. Get response information from the transaction object
-    6. Write response information to client
 
 =head1 ATTRIBUTES
+
+L<Mojo::Server> implements the following attributes.
 
 =head2 C<app>
 
     my $app = $server->app;
     $server = $server->app(MojoSubclass->new);
 
-Returns the instantiated Mojo application to serve.
-Overrides C<app_class> if defined.
-
 =head2 C<app_class>
 
     my $app_class = $server->app_class;
     $server       = $server->app_class('MojoSubclass');
-
-Returns the class name of the Mojo application to serve.
-Defaults to C<$ENV{MOJO_APP}> and falls back to C<Mojo::HelloWorld>.
 
 =head2 C<build_tx_cb>
 
@@ -145,7 +136,6 @@ Defaults to C<$ENV{MOJO_APP}> and falls back to C<Mojo::HelloWorld>.
     my $handler = $server->continue_handler_cb;
     $server     = $server->continue_handler_cb(sub {
         my ($self, $tx) = @_;
-        return $tx;
     });
 
 =head2 C<handler_cb>
@@ -153,7 +143,6 @@ Defaults to C<$ENV{MOJO_APP}> and falls back to C<Mojo::HelloWorld>.
     my $handler = $server->handler_cb;
     $server     = $server->handler_cb(sub {
         my ($self, $tx) = @_;
-        return $tx;
     });
 
 =head1 METHODS
@@ -168,15 +157,5 @@ following new ones.
 =head2 C<run>
 
     $server->run;
-
-=head1 BUNDLED SERVERS
-
-L<Mojo::Server::CGI> - Serves a single CGI request.
-
-L<Mojo::Server::Daemon> - Portable standalone HTTP server.
-
-L<Mojo::Server::Daemon::Prefork> - Preforking standalone HTTP server.
-
-L<Mojo::Server::FastCGI> - A FastCGI server.
 
 =cut

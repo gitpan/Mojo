@@ -7,13 +7,13 @@ use warnings;
 
 use base 'Mojo::Base';
 
-require Carp;
 require Cwd;
 require File::Path;
 require File::Spec;
 require IO::File;
 
-use Mojo::ByteStream;
+use Carp 'croak';
+use Mojo::ByteStream 'b';
 use Mojo::Template;
 
 __PACKAGE__->attr('description', default => 'No description.');
@@ -24,7 +24,7 @@ sub chmod_file {
     my ($self, $path, $mod) = @_;
 
     # chmod
-    chmod $mod, $path or die qq/Can't chmod path "$path": $!/;
+    chmod $mod, $path or croak qq/Can't chmod path "$path": $!/;
 
     $mod = sprintf '%lo', $mod;
     print "  [chmod] $path $mod\n" unless $self->quiet;
@@ -46,7 +46,7 @@ sub class_to_file {
 
     # Class to file
     $class =~ s/:://g;
-    $class = Mojo::ByteStream->new($class)->decamelize->to_string;
+    $class = b($class)->decamelize->to_string;
 
     return $class;
 }
@@ -70,7 +70,7 @@ sub create_dir {
     }
 
     # Make
-    File::Path::mkpath($path) or die qq/Can't make directory "$path": $!/;
+    File::Path::mkpath($path) or croak qq/Can't make directory "$path": $!/;
     print "  [mkdir] $path\n" unless $self->quiet;
     return $self;
 }
@@ -112,7 +112,7 @@ sub get_data {
         return $content if $name eq $data;
     }
 
-    return undef;
+    return;
 }
 
 sub rel_dir {
@@ -175,7 +175,7 @@ sub render_to_rel_file {
 }
 
 # My cat's breath smells like cat food.
-sub run { Carp::croak('Method "run" not implemented by subclass') }
+sub run { croak 'Method "run" not implemented by subclass' }
 
 sub write_file {
     my ($self, $path, $data) = @_;
@@ -188,7 +188,7 @@ sub write_file {
 
     # Open file
     my $file = IO::File->new;
-    $file->open(">$path") or die qq/Can't open file "$path": $!/;
+    $file->open(">$path") or croak qq/Can't open file "$path": $!/;
 
     # Write unbuffered
     $file->syswrite($data);
@@ -235,6 +235,8 @@ Mojo::Script - Script Base Class
 L<Mojo::Script> is a base class for scripts.
 
 =head1 ATTRIBUTES
+
+L<Mojo::Script> implements the following attributes.
 
 =head2 C<description>
 

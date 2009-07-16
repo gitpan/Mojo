@@ -18,7 +18,7 @@ __PACKAGE__->attr('home', default => sub { Mojo::Home->new });
 __PACKAGE__->attr('log',  default => sub { Mojo::Log->new });
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.991236';
+our $VERSION = '0.991237';
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -27,7 +27,8 @@ sub new {
     $self->home->detect(ref $self);
 
     # Log directory
-    $self->log->path($self->home->rel_file('log/mojo.log'));
+    $self->log->path($self->home->rel_file('log/mojo.log'))
+      if -w $self->home->rel_file('log');
 
     return $self;
 }
@@ -98,32 +99,13 @@ new ones.
 
     my $mojo = Mojo->new;
 
-Returns a new L<Mojo> object.
-
 =head2 C<build_tx>
 
     my $tx = $mojo->build_tx;
 
-Returns a new L<Mojo::Transaction> object;
-Meant to be overloaded in subclasses.
-
 =head2 C<handler>
 
     $tx = $mojo->handler($tx);
-
-Returns and takes a L<Mojo::Transaction> object as first argument.
-Meant to be overloaded in subclasses.
-
-    sub handler {
-        my ($self, $tx) = @_;
-
-        # Hello world!
-        $tx->res->code(200);
-        $tx->res->headers->content_type('text/plain');
-        $tx->res->body('Congratulations, your Mojo is working!');
-
-        return $tx;
-    }
 
 =head1 SUPPORT
 
@@ -188,6 +170,8 @@ Jesse Vincent
 Lars Balker Rasmussen
 
 Leon Brocard
+
+Maik Fischer
 
 Marcus Ramberg
 

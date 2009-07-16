@@ -29,7 +29,7 @@ sub match {
     my $result = $self->shape_match(\$path);
 
     # Just a partial match
-    return undef if length $path;
+    return if length $path;
 
     # Result
     return $result;
@@ -133,7 +133,7 @@ sub shape_match {
         return $result;
     }
 
-    return undef;
+    return;
 }
 
 sub _compile {
@@ -298,6 +298,8 @@ MojoX::Routes::Pattern - Pattern
 L<MojoX::Routes::Pattern> is a route pattern container.
 
 =head2 ATTRIBUTES
+
+L<MojoX::Routes::Pattern> implements the following attributes.
 
 =head2 C<defaults>
 

@@ -78,7 +78,7 @@ implements the following new ones.
 __DATA__
 __mojo__
 % my $class = shift;
-#!/usr/bin/perl
+#!/usr/bin/env perl -w
 
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
@@ -89,20 +89,16 @@ use FindBin;
 
 use lib "$FindBin::Bin/lib";
 use lib "$FindBin::Bin/../lib";
-use lib "$FindBin::Bin/../../lib";
 
 $ENV{MOJO_APP} = '<%= $class %>';
 
 # Check if Mojo is installed
 eval 'use Mojo::Scripts';
-if ($@) {
-    print <<EOF;
+die <<EOF if $@;
 It looks like you don't have the Mojo Framework installed.
 Please visit http://mojolicious.org for detailed installation instructions.
 
 EOF
-    exit;
-}
 
 # Start the script system
 my $scripts = Mojo::Scripts->new;
@@ -119,18 +115,16 @@ use base 'Mojo';
 sub handler {
     my ($self, $tx) = @_;
 
-    # $tx is a Mojo::Transaction instance
+    # Hello world!
     $tx->res->code(200);
     $tx->res->headers->content_type('text/plain');
     $tx->res->body('Hello Mojo!');
-
-    return $tx;
 }
 
 1;
 __test__
 % my $class = shift;
-#!perl
+#!/usr/bin/env perl -w
 
 use strict;
 use warnings;

@@ -7,19 +7,19 @@ use warnings;
 
 use base 'Mojo::Base';
 
+use IO::Poll qw/POLLERR POLLHUP POLLIN POLLOUT/;
 use IO::Socket::INET;
-use IO::Select;
 use Mojo::Pipeline;
 use Mojo::Server;
 use Socket;
 
-__PACKAGE__->attr('continue_timeout',   default => 3);
+__PACKAGE__->attr('continue_timeout',   default => 5);
 __PACKAGE__->attr('keep_alive_timeout', default => 15);
-__PACKAGE__->attr('select_timeout',     default => 5);
 
 sub connect {
     my ($self, $tx) = @_;
 
+    # Info
     my ($scheme, $host, $address, $port) = $tx->client_info;
 
     # Try to get a cached connection
@@ -71,6 +71,7 @@ sub deposit_connection {
 sub open_connection {
     my ($self, $scheme, $address, $port) = @_;
 
+    # New connection
     my $connection = IO::Socket::INET->new(
         Proto => 'tcp',
         Type  => SOCK_STREAM
@@ -79,6 +80,7 @@ sub open_connection {
     # Non blocking
     $connection->blocking(0);
 
+    # Connect
     my $sin = sockaddr_in($port, inet_aton($address));
     $connection->connect($sin);
 
@@ -93,39 +95,41 @@ sub process {
     # Parallel async io main loop... woot!
     while (1) { last if $self->spin(@transactions) }
 
-    # Finished transactions should be returned first
-    my @sorted;
-    while (my $tx = shift @transactions) {
-        $tx->is_finished ? unshift(@sorted, $tx) : push(@sorted, $tx);
-    }
-
-    return @sorted;
+    # Done
+    return @transactions;
 }
 
 sub process_all {
     my ($self, @transactions) = @_;
 
     my @finished;
-    my @progress = @transactions;
 
     # Process until all transactions are finished
     while (1) {
-        my @done = $self->process(@progress);
-        @progress = ();
+
+        # Process
+        my @done = $self->process(@transactions);
+        @transactions = ();
+
+        # Check
         for my $tx (@done) {
-            $tx->is_finished ? push(@finished, $tx) : push(@progress, $tx);
+            $tx->is_finished
+              ? push(@finished,     $tx)
+              : push(@transactions, $tx);
         }
-        last unless @progress;
+
+        # Done
+        last unless @transactions;
     }
 
     return @finished;
 }
 
-sub process_local {
+sub process_app {
     my ($self, $class, $client) = @_;
 
     # Remote server
-    if (my $authority = $ENV{MOJO_AUTHORITY}) {
+    if (my $authority = $ENV{MOJO_REMOTE_APP}) {
         $client->req->url->authority($authority);
         return $self->process($client);
     }
@@ -143,9 +147,6 @@ sub process_local {
 
     # Exchange
     while ($client->is_writing || $server->is_writing) {
-
-        # Client spins
-        $client->client_spin;
 
         # Client writing?
         if ($client->is_writing) {
@@ -178,10 +179,11 @@ sub process_local {
         }
 
         # Handle
-        $self->_local_handle($daemon, $server);
+        $self->_handle_app($daemon, $server);
 
-        # Server spin
+        # Spin both
         $server->server_spin;
+        $client->client_spin;
 
         # Server takes care of leftovers
         if (my $leftovers = $server->server_leftovers) {
@@ -193,7 +195,7 @@ sub process_local {
             $server->server_read($leftovers);
 
             # Handle
-            $self->_local_handle($daemon, $server);
+            $self->_handle_app($daemon, $server);
         }
     }
 
@@ -231,6 +233,7 @@ sub spin {
         # Connected
         elsif ($tx->is_state('connect')) {
 
+            # Timeout
             $tx->continue_timeout($self->continue_timeout);
 
             # Store connection information
@@ -263,8 +266,7 @@ sub spin {
     return 1 if $done;
 
     # Sort read/write sockets
-    my @read_select;
-    my @write_select;
+    my $poll    = IO::Poll->new;
     my $waiting = 0;
     for my $tx (@transactions) {
 
@@ -274,10 +276,9 @@ sub spin {
         my $connection = $tx->connection;
 
         # We always try to read as suggested by RFC 2616 for HTTP 1.1 clients
-        push @read_select, $connection;
-
-        # Write sockets
-        push @write_select, $connection if ($tx->is_writing);
+        $tx->is_writing
+          ? $poll->mask($connection, POLLIN | POLLOUT)
+          : $poll->mask($connection, POLLIN);
 
         $waiting++;
     }
@@ -285,22 +286,16 @@ sub spin {
     # No sockets ready yet
     return 0 unless $waiting;
 
-    my $read_select  = @read_select  ? IO::Select->new(@read_select)  : undef;
-    my $write_select = @write_select ? IO::Select->new(@write_select) : undef;
-
-    # Select
-    my ($read, $write, undef) =
-      IO::Select->select($read_select, $write_select, undef,
-        $self->select_timeout);
-
-    $read  ||= [];
-    $write ||= [];
+    # Poll
+    $poll->poll(5);
+    my @readers = $poll->handles(POLLIN | POLLHUP | POLLERR);
+    my @writers = $poll->handles(POLLOUT);
 
     # Make a random decision about reading or writing
     my $do = -1;
-    $do = 0 if @$read;
-    $do = 1 if @$write;
-    $do = int(rand(3)) - 1 if @$read && @$write;
+    $do = 0 if @readers;
+    $do = 1 if @writers;
+    $do = int(rand(3)) - 1 if @readers && @writers;
 
     # Write
     if ($do == 1) {
@@ -308,11 +303,12 @@ sub spin {
         my ($tx, $chunk);
 
         # Check for content randomly
-        for my $connection (sort { int(rand(3)) - 1 } @$write) {
+        for my $connection (sort { int(rand(3)) - 1 } @writers) {
 
             my $name = $self->_socket_name($connection);
             $tx = $transaction{$name};
 
+            # Get chunk
             $chunk = $tx->client_get_chunk;
 
             # Content generator ready?
@@ -327,21 +323,24 @@ sub spin {
         $tx->error("Can't write to socket: $!") unless defined $written;
         return 1 if $tx->has_error;
 
+        # Written
         $tx->client_written($written);
     }
 
     # Read
     elsif ($do == 0) {
 
-        my $connection = $read->[rand(@$read)];
+        my $connection = $readers[rand(@readers)];
         my $name       = $self->_socket_name($connection);
         my $tx         = $transaction{$name};
 
+        # Read chunk
         my $buffer;
         my $read = $connection->sysread($buffer, 1024, 0);
         $tx->error("Can't read from socket: $!") unless defined $read;
         return 1 if $tx->has_error;
 
+        # Parse
         $tx->client_read($buffer);
     }
 
@@ -351,9 +350,12 @@ sub spin {
 sub test_connection {
     my ($self, $connection) = @_;
 
-    # There are garbage bytes on the socket, or the peer closed the
-    # connection if it is readable
-    return IO::Select->new($connection)->can_read(0) ? 0 : 1;
+    # There are garbage bytes on the socket or peer closed the connection
+    my $poll = IO::Poll->new;
+    $poll->mask($connection, POLLIN);
+    $poll->poll(0);
+    my @readers = $poll->handles(POLLIN | POLLHUP | POLLERR);
+    return @readers ? 0 : 1;
 }
 
 sub withdraw_connection {
@@ -368,10 +370,14 @@ sub withdraw_connection {
     # Check all connections for name, timeout and if they are still alive
     for my $conn (@{$self->{_connections}}) {
         my ($name, $connection, $timeout) = @{$conn};
+
+        # Found
         if ($match eq $name) {
             $result = $connection
               if (time < $timeout) && $self->test_connection($connection);
         }
+
+        # Check time
         else { push(@connections, $conn) if time < $timeout }
     }
 
@@ -379,7 +385,7 @@ sub withdraw_connection {
     return $result;
 }
 
-sub _local_handle {
+sub _handle_app {
     my ($self, $daemon, $server) = @_;
 
     # Handle continue
@@ -405,6 +411,8 @@ sub _local_handle {
 
 sub _socket_name {
     my ($self, $s) = @_;
+
+    # Generate
     return
         unpack('H*', $s->sockaddr)
       . $s->sockport
@@ -437,6 +445,8 @@ L<Mojo::Client> is a full featured async io HTTP 1.1 client.
 
 =head1 ATTRIBUTES
 
+L<Mojo::Client> implements the following attributes.
+
 =head2 C<continue_timeout>
 
     my $timeout = $client->continue_timeout;
@@ -446,11 +456,6 @@ L<Mojo::Client> is a full featured async io HTTP 1.1 client.
 
     my $keep_alive_timeout = $client->keep_alive_timeout;
     $client                = $client->keep_alive_timeout(15);
-
-=head2 C<select_timeout>
-
-    my $timeout = $client->select_timeout;
-    $client     = $client->select_timeout(5);
 
 =head1 METHODS
 
@@ -481,13 +486,9 @@ following new ones.
 
     @transactions = $client->process_all(@transactions);
 
-=head2 C<process_local>
+=head2 C<process_app>
 
-    $tx = $client->process_local('MyApp', $tx);
-
-Returns a processed L<Mojo::Transaction> object.
-Expects a Mojo application class name and a L<Mojo::Transaction> object as
-arguments.
+    $tx = $client->process_app('MyApp', $tx);
 
 =head2 C<spin>
 

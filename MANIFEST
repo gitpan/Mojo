@@ -135,6 +135,7 @@ t/mojolicious/templates/exception.html.epl
 t/mojolicious/templates/foo/bar/index.html.xpl
 t/mojolicious/templates/foo/index.html.xpl
 t/mojolicious/templates/layouts/default.html.epl
+t/mojolicious/templates/syntaxerror.html.epl
 t/mojox/context.t
 t/mojox/dispatcher/routes.t
 t/mojox/renderer.t

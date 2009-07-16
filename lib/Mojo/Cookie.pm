@@ -8,7 +8,8 @@ use warnings;
 use base 'Mojo::Base';
 use overload '""' => sub { shift->to_string }, fallback => 1;
 
-use Carp;
+use Carp 'croak';
+use Mojo::ByteStream 'b';
 use Mojo::Date;
 
 __PACKAGE__->attr(
@@ -61,7 +62,7 @@ sub _tokenize {
             //x
               )
             {
-                $value = Mojo::ByteStream->new($1)->unquote;
+                $value = b($1)->unquote;
             }
 
             # "expires" is a special case, thank you Netscape...
@@ -113,6 +114,8 @@ Mojo::Cookie - Cookie Base Class
 L<Mojo::Cookie> is a cookie base class.
 
 =head1 ATTRIBUTES
+
+L<Mojo::Cookie> implements the following attributes.
 
 =head2 C<comment>
 

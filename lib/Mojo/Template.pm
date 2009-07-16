@@ -75,17 +75,16 @@ sub compile {
 
     # Shortcut
     my $code = $self->code;
-    return undef unless $code;
-
-    # Catch compilation warnings
-    local $SIG{__WARN__} = sub { };
+    return unless $code;
 
     # Compile
     my $compiled = eval $code;
-    die $self->_error($@) if $@;
+
+    # Exception
+    return Mojo::Template::Exception->new($@, $self->template) if $@;
 
     $self->compiled($compiled);
-    return $self;
+    return;
 }
 
 sub interpret {
@@ -94,15 +93,16 @@ sub interpret {
 
     # Shortcut
     my $compiled = $self->compiled;
-    return undef unless $compiled;
+    return unless $compiled;
 
-    # Catch interpreter warnings
-    local $SIG{__WARN__} = sub { };
+    # Catch errors
+    local $SIG{__DIE__} =
+      sub { die Mojo::Template::Exception->new(shift, $self->template) };
 
     # Interpret
     $$output = eval { $compiled->(@_) };
     if ($@) {
-        $$output = $self->_error($@);
+        $$output = $@;
         return 0;
     }
 
@@ -228,8 +228,9 @@ sub parse {
 }
 
 sub render {
-    my $self = shift;
-    my $tmpl = shift;
+    my $self   = shift;
+    my $tmpl   = shift;
+    my $output = shift;
 
     # Parse
     $self->parse($tmpl);
@@ -238,10 +239,16 @@ sub render {
     $self->build;
 
     # Compile
-    $self->compile;
+    my $e = $self->compile;
+
+    # Exception
+    if ($e) {
+        $$output = $e;
+        return;
+    }
 
     # Interpret
-    return $self->interpret(@_);
+    return $self->interpret($output, @_);
 }
 
 sub render_file {
@@ -289,24 +296,6 @@ sub render_to_file {
 
     # Write to file
     return $self->_write_file($path, $output);
-}
-
-# Debug goodness
-sub _error {
-    my ($self, $error) = @_;
-
-    my $te = Mojo::Template::Exception->new(message => $error);
-
-    # Line
-    if ($error =~ /at\s+\(eval\s+\d+\)\s+line\s+(\d+)/) {
-
-        my $line = $1;
-        my @lines = split /\n/, $self->template;
-
-        $te->parse_context(\@lines, $line);
-    }
-
-    return $te;
 }
 
 sub _write_file {
@@ -369,7 +358,6 @@ designed specifically for all those small tasks that come up during big
 projects.
 Like preprocessing a config file, generating text from heredocs and stuff
 like that.
-For bigger tasks you might want to use L<HTML::Mason> or L<Template>.
 
     <% Inline Perl %>
     <%= Perl expression, replaced with result %>
@@ -418,14 +406,12 @@ tricky.
 But L<Mojo::Template> will return L<Mojo::Template::Exception> objects that
 stringify to error messages with context.
 
-    Template error around line 4.
-    -----------------------------------------------------------------
+    Error around line 4.
     2: </head>
     3: <body>
     4: % my $i = 2; xx
     5: %= $i * 2
     6: </body>
-    -----------------------------------------------------------------
     Bareword "xx" not allowed while "strict subs" in use at (eval 13)
     line 4.
 
@@ -446,6 +432,8 @@ build a wrapper around it.
     $mt->interpret(\$output, @arguments);
 
 =head1 ATTRIBUTES
+
+L<Mojo::Template> implements the following attributes.
 
 =head2 C<code>
 
@@ -507,7 +495,7 @@ following new ones.
 
 =head2 C<compile>
 
-    $mt = $mt->compile;
+    my $exception = $mt->compile;
 
 =head2 C<interpret>
 

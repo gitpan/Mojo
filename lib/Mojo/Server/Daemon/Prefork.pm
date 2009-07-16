@@ -12,7 +12,7 @@ use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
 use Carp 'croak';
 use Fcntl ':flock';
 use IO::File;
-use IO::Select;
+use IO::Poll 'POLLIN';
 use IO::Socket;
 use POSIX 'WNOHANG';
 
@@ -50,7 +50,7 @@ sub accept_lock {
     # Idle
     if ($blocking) {
         $self->{_child_write}->syswrite("$$ idle\n")
-          or die "Can't write to parent: $!";
+          or croak "Can't write to parent: $!";
     }
 
     # Lock
@@ -62,7 +62,7 @@ sub accept_lock {
     # Busy
     if ($lock) {
         $self->{_child_write}->syswrite("$$ busy\n")
-          or die "Can't write to parent: $!";
+          or croak "Can't write to parent: $!";
     }
 
     return $lock;
@@ -112,7 +112,8 @@ sub run {
     # Pipe for child communication
     pipe($self->{_child_read}, $self->{_child_write})
       or croak "Can't create pipe: $!";
-    $self->{_child_select} = IO::Select->new($self->{_child_read});
+    $self->{_child_poll} = IO::Poll->new;
+    $self->{_child_poll}->mask($self->{_child_read}, POLLIN);
 
     # Create pid file
     $self->_create_pid_file;
@@ -186,6 +187,7 @@ sub _create_pid_file {
 sub _kill_children {
     my $self = shift;
 
+    # Close pipe
     delete $self->{_child_read};
 
     # Kill all children
@@ -196,7 +198,11 @@ sub _kill_children {
             $self->log("Killing child $pid") if DEBUG;
             kill 'TERM', $pid;
         }
+
+        # Cleanup
         $self->_cleanup_children;
+
+        # Wait
         sleep 1;
     }
 
@@ -260,7 +266,9 @@ sub _read_messages {
     my $self = shift;
 
     # Read messages
-    if ($self->{_child_select}->can_read(1)) {
+    $self->{_child_poll}->poll(1);
+    my @readers = $self->{_child_poll}->handles(POLLIN);
+    if (@readers) {
         return unless $self->{_child_read}->sysread(my $buffer, 4096);
         $self->{_buffer} .= $buffer;
     }
@@ -322,12 +330,12 @@ sub _spawn_child {
 
         # No need for child reader
         close(delete $self->{_child_read});
-        delete $self->{_child_select};
+        delete $self->{_child_poll};
 
         # Lockfile
         my $lock = $self->pid_file;
         $self->{_lock} = IO::File->new($lock, O_RDWR)
-          or die "Can't open lock file $lock: $!";
+          or croak "Can't open lock file $lock: $!";
 
         # Parent will send a SIGHUP when there are too many children idle
         my $done = 0;
@@ -340,7 +348,7 @@ sub _spawn_child {
 
         # Done
         $self->{_child_write}->syswrite("$$ done\n")
-          or die "Can't write to parent: $!";
+          or croak "Can't write to parent: $!";
         delete $self->{_child_write};
         delete $self->{_lock};
         exit 0;

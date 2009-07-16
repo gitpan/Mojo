@@ -8,11 +8,59 @@ use warnings;
 use base 'Mojo::Base';
 use overload '""' => sub { shift->to_string }, fallback => 1;
 
-__PACKAGE__->attr([qw/line lines_before lines_after/], default => sub { [] });
-__PACKAGE__->attr('message');
+__PACKAGE__->attr([qw/line lines_before lines_after stack/],
+    default => sub { [] });
+__PACKAGE__->attr('message', default => 'Exception!');
 
 # Attempted murder? Now honestly, what is that?
 # Do they give a Nobel Prize for attempted chemistry?
+sub new {
+    my $self = shift->SUPER::new();
+
+    # Message
+    $self->message(shift);
+
+    # Stack
+    my $i = 1;
+    while (my ($p, $f, $l) = caller($i++)) {
+
+        # Stack
+        push @{$self->stack}, [$p, $f, $l];
+    }
+
+    # Lines
+    my $lines = shift;
+
+    # Shortcut
+    return $self unless $lines;
+
+    # Parse message
+    my $line;
+    $line = $1 if $self->message =~ /at\s+\(eval\s+\d+\)\s+line\s+(\d+)/;
+
+    # Caller
+    my $caller = (caller)[0];
+
+    # Search template in callstack
+    for my $frame (@{$self->stack}) {
+
+        my ($p, $f, $l) = @$frame;
+
+        # Try to find template
+        if ($p eq $caller && $f =~ /^\(eval\s+\d+\)$/ && !$line) {
+
+            # Done
+            $line = $l;
+        }
+    }
+
+    # Context
+    my @lines = split /\n/, $lines;
+    $self->parse_context(\@lines, $line) if $line;
+
+    return $self;
+}
+
 sub parse_context {
     my ($self, $lines, $line) = @_;
 
@@ -62,8 +110,7 @@ sub to_string {
     my $string = '';
 
     # Header
-    my $delim = '-' x 76;
-    $string .= ('Error around line ' . $self->line->[0] . ".\n$delim\n")
+    $string .= ('Error around line ' . $self->line->[0] . ".\n")
       if $self->line->[0];
 
     # Before
@@ -80,8 +127,14 @@ sub to_string {
         $string .= $line->[0] . ': ' . $line->[1] . "\n";
     }
 
-    # Delim
-    $string .= "$delim\n" if length $string;
+    # Stack
+    if (@{$self->stack} && $ENV{MOJO_EXCEPTION_VERBOSE}) {
+        for my $frame (@{$self->stack}) {
+            my $file = $frame->[1];
+            my $line = $frame->[2];
+            $string .= "$file: $line\n";
+        }
+    }
 
     # Message
     $string .= $self->message if $self->message;
@@ -107,6 +160,8 @@ L<Mojo::Template::Exception> is a container for template exceptions.
 
 =head1 ATTRIBUTES
 
+L<Mojo::Template::Exception> implements the following attributes.
+
 =head2 C<line>
 
     my $line = $e->line;
@@ -127,10 +182,19 @@ L<Mojo::Template::Exception> is a container for template exceptions.
     my $message = $e->message;
     $e          = $e->message('oops!');
 
+=head2 C<stack>
+
+    my $stack = $e->stack;
+    $e        = $e->stack([['Foo::Bar', '/foo/bar.pl', 23]]);
+
 =head1 METHODS
 
 L<Mojo::Template::Exception> inherits all methods from L<Mojo::Base> and
 implements the following new ones.
+
+=head2 C<new>
+
+    my $e = Mojo::Loader::Exception->new('Oops!', $template);
 
 =head2 C<parse_context>
 

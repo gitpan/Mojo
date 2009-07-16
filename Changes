@@ -1,5 +1,27 @@
 This file documents the revision history for Perl extension Mojo.
 
+0.991237 2009-07-07 00:00:00
+        - Renamed process_local to process_app in Mojo::Client, this change
+          is not backward compatible and you might have to change some of
+          your tests.
+        - Simplified MojoX::Renderer.
+        - Simplified Mojo::Loader.
+        - Simplified Mojo::ByteStream.
+        - Simplified exceptions.
+        - Updated all modules to use IO::Poll instead of IO::Select.
+        - Updated exception handling in Mojolicious to work with exceptions
+          in epl templates.
+        - Updated Mojo and Mojolicious to log to STDERR if log directory
+          isn't writable.
+        - Updated Mojo and Mojolicious to work without boilerplate and a
+          single MyApp.pm file.
+        - Added html_encode and html_decode methods to Mojo::ByteStream.
+        - Improved 100 Continue handling and added more tests. (acajou)
+        - Improved Mojo::Template exception handling.
+        - Cleaned up exception code.
+        - Fixed possible infinite loop in Mojo::Server::FastCGI.
+        - Fixed typos.
+
 0.991236 2009-07-05 00:00:00
         - Simplified Mojo::Home.
         - Moved executable detection to Test::Mojo::Server.

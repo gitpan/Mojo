@@ -31,167 +31,130 @@ sub add_handler {
 sub render {
     my ($self, $c) = @_;
 
-    my ($template, $template_path);
-    my $is_layout = 0;
+    # We got called
+    $c->stash->{rendered} = 1;
+
+    my $template;
 
     # Layout first
-    if ($c->stash->{layout} || $c->stash->{layout_path}) {
-        $template      = $c->stash->{layout};
-        $template_path = $c->stash->{layout_path};
-        $is_layout     = 1;
+    if (my $layout = delete $c->stash->{layout}) {
+        $template = File::Spec->catfile('layouts', $layout);
+        $c->stash->{inner_template} = delete $c->stash->{template};
     }
 
     # Normal template
-    else {
-        $template      = $c->stash->{template};
-        $template_path = $c->stash->{template_path};
-    }
+    else { $template = delete $c->stash->{template} }
 
-    # Not enough information
-    return undef unless $template || $template_path;
+    # Nothing to do
+    return unless $template;
 
     # Handler precedence
     $self->precedence([sort keys %{$self->handler}])
       unless $self->precedence;
 
-    # Inner
-    local $c->stash->{inner_template} = $c->stash->{template} if $is_layout;
-    local $c->stash->{inner_template_path} = $c->stash->{template_path}
-      if $is_layout;
+    # Format
+    return unless $template = $self->_fix_format($c, $template);
 
-    # Template has priority
-    $template_path = undef if $template;
-
-    # Path
-    return undef
-      unless $template_path =
-          $self->_fix_path($c, $template, $template_path, $is_layout);
-
-    # Store for handler usage
-    local $c->stash->{template_path} = $template_path;
+    # Handler
+    return unless $template = $self->_fix_handler($c, $template);
 
     # Extract
-    $template_path =~ /\.(\w+)(?:\.(\w+))?$/;
+    $template =~ /\.(\w+)(?:\.(\w+))?$/;
     my $format = $1;
-    my $handler = $2 || $self->default_handler;
+    my $handler = $c->stash->{handler} || $2 || $self->default_handler;
 
     # Renderer
     my $r = $self->handler->{$handler};
 
-    # Debug
+    # No handler
     unless ($r) {
-        $c->app->log->debug(qq/No handler for "$handler" available./);
-        return undef;
+        $c->app->log->error(qq/No handler for "$handler" available./);
+        return;
     }
 
     # Partial?
     my $partial = $c->stash->{partial};
 
-    # Clean
-    local $c->stash->{layout}      = undef;
-    local $c->stash->{layout_path} = undef;
-    local $c->stash->{template}    = undef;
+    # Template
+    $c->stash->{template} = $template;
 
     # Render
     my $output;
-    return undef unless $r->($self, $c, \$output);
+    return unless $r->($self, $c, \$output);
 
     # Partial
     return $output if $partial;
 
     # Response
     my $res = $c->res;
-    $res->code(200) unless $c->res->code;
-    $res->body($output);
+    $res->code(200) unless $res->code;
+    $res->body($output) unless $res->body;
 
     # Type
     my $type = $self->types->type($format) || 'text/plain';
-    $res->headers->content_type($type);
+    $res->headers->content_type($type) unless $res->headers->content_type;
 
     # Success!
-    $c->stash->{partial}  = $partial;
-    $c->stash->{rendered} = 1;
+    $c->stash->{partial} = $partial;
     return 1;
 }
 
-sub _detect_default_handler { return 1 if shift->default_handler && -f shift }
+sub _detect_default_handler {
+    my ($self, $template) = @_;
+    return 1
+      if $self->default_handler
+          && -f File::Spec->catfile($self->root, $template);
+}
 
 sub _fix_format {
-    my ($self, $c, $path) = @_;
+    my ($self, $c, $template) = @_;
 
     # Format ok
-    return $path if $path =~ /\.\w+(?:\.\w+)?$/;
+    return $template if $template =~ /\.\w+(?:\.\w+)?$/;
 
     my $format = $c->stash->{format};
 
     # Append format
-    if ($format) { $path .= ".$format" }
+    if ($format) { $template .= ".$format" }
 
     # Missing format
     else {
         $c->app->log->debug('Template format missing.');
-        return undef;
+        return;
     }
 
-    return $path;
+    return $template;
 }
 
 sub _fix_handler {
-    my ($self, $c, $path) = @_;
+    my ($self, $c, $template) = @_;
 
     # Handler ok
-    return $path if $path =~ /\.\w+\.\w+$/;
+    return $template if $template =~ /\.\w+\.\w+$/;
 
     my $handler = $c->stash->{handler};
 
     # Append handler
-    if ($handler) { $path .= ".$handler" }
+    if ($handler) { $template .= ".$handler" }
 
     # Detect
-    elsif (!$self->_detect_default_handler($path)) {
-        my $found = 0;
+    elsif (!$self->_detect_default_handler($template)) {
         for my $ext (@{$self->precedence}) {
 
             # Try
-            my $p = "$path.$ext";
-            if (-f $p) {
-                $found++;
-                $path = $p;
-                $c->app->log->debug(qq/Template found "$path"./);
-                last;
+            my $t = "$template.$ext";
+            if (-r File::Spec->catfile($self->root, $t)) {
+                $c->app->log->debug(qq/Template found "$t"./);
+                return $t;
             }
         }
 
         # Nothing found
-        unless ($found) {
-            $c->app->log->debug(qq/Template not found "$path.*"./);
-            return undef;
-        }
+        $c->app->log->debug(qq/Template not found "$template.*"./);
+        return;
     }
 
-    return $path;
-}
-
-sub _fix_path {
-    my ($self, $c, $template, $template_path, $is_layout) = @_;
-
-    # Root
-    my $root =
-      $is_layout ? File::Spec->catfile($self->root, 'layouts') : $self->root;
-
-    # Path
-    $template_path = File::Spec->catfile($root, $template)
-      if $template && !$template_path;
-
-    # Format
-    return undef
-      unless $template_path = $self->_fix_format($c, $template_path);
-
-    # Handler
-    return undef
-      unless $template_path = $self->_fix_handler($c, $template_path);
-
-    return $template_path;
+    return $template;
 }
 
 1;
@@ -223,10 +186,6 @@ L<MojoX::Renderer> is a MIME type based renderer.
     my $handler = $renderer->handler;
     $renderer   = $renderer->handler({epl => sub { ... }});
 
-Returns a hashref of handlers if called without arguments.
-Returns the invocant if called with arguments.
-Keys are file extensions and values are coderefs.
-
 =head2 C<precedence>
 
     my $precedence = $renderer->precedence;
@@ -237,17 +196,10 @@ Keys are file extensions and values are coderefs.
     my $types = $renderer->types;
     $renderer = $renderer->types(MojoX::Types->new);
 
-Returns a L<MojoX::Types> object if called without arguments.
-Returns the invocant if called with arguments.
-
 =head2 C<root>
 
    my $root  = $renderer->root;
    $renderer = $renderer->root('/foo/bar/templates');
-
-Return the root file system path where templates are stored if called without
-arguments.
-Returns the invocant if called with arguments.
 
 =head1 METHODS
 

@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Mojo
-version:            0.991237
+version:            0.991238
 abstract:           ~
 author:
     - Sebastian Riedel <sri@cpan.org>

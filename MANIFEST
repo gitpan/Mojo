@@ -1,6 +1,4 @@
 .perltidyrc
-bin/mojo
-bin/mojolicious
 Changes
 fcgi-spec.html
 lib/Mojo.pm
@@ -88,6 +86,8 @@ rfc2388.txt
 rfc2616.txt
 rfc2965.txt
 rfc3986.txt
+script/mojo
+script/mojolicious
 t/mojo/apache_cgi.t
 t/mojo/apache_fastcgi.t
 t/mojo/app.t

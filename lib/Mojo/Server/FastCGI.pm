@@ -8,7 +8,10 @@ use warnings;
 use base 'Mojo::Server';
 use bytes;
 
+use IO::Handle;
 use IO::Poll 'POLLIN';
+
+use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
 
 # Roles
 my @ROLES = qw/RESPONDER  AUTHORIZER FILTER/;
@@ -51,14 +54,30 @@ sub accept_connection {
     my $self = shift;
 
     # Listen socket?
-    open $self->{_listen}, '<&=0' unless $self->{_listen};
+    unless ($self->{_listen}) {
+        my $fh = IO::Handle->new;
+
+        # Open
+        unless ($fh->fdopen(0, 'r')) {
+            $self->app->log->error("Can't open FastCGI socket fd0: $!");
+            return;
+        }
+
+        $self->{_listen} = $fh;
+    }
+
+    # Debug
+    $self->app->log->debug('FastCGI listen socket opened.') if DEBUG;
 
     # Accept
-    my $connection = undef;
+    my $connection;
     unless (accept $connection, $self->{_listen}) {
         $self->app->log->error("Can't accept FastCGI connection: $!");
         return;
     }
+
+    # Debug
+    $self->app->log->debug('Accepted FastCGI connection.') if DEBUG;
 
     # Blocking sucks
     $connection->blocking(0);
@@ -83,11 +102,21 @@ sub read_record {
     # Ignore padding bytes
     $body = $plen ? substr($body, $clen, 0, '') : $body;
 
+    # Debug
+    if (DEBUG) {
+        my $t = $self->type_name($type);
+        $self->app->log->debug(
+            qq/Reading FastCGI record: $type - $id - "$body"./);
+    }
+
     return $self->type_name($type), $id, $body;
 }
 
 sub read_request {
     my ($self, $connection) = @_;
+
+    # Debug
+    $self->app->log->debug('Reading FastCGI request.') if DEBUG;
 
     # Transaction
     my $tx = $self->build_tx_cb->($self);
@@ -183,6 +212,9 @@ sub run {
             next;
         }
 
+        # Debug
+        $self->app->log->debug('Handling FastCGI request.') if DEBUG;
+
         # Handle
         $self->handler_cb->($self, $tx);
 
@@ -223,6 +255,14 @@ sub write_records {
 
         # FCGI version 1 record
         my $template = "CCnnCxa${len}x$padlen";
+
+        # Debug
+        if (DEBUG) {
+            my $chunk = substr($body, $offset, $len);
+            $self->app->log->debug(
+                qq/Writing FastCGI record: $type - $id - "$chunk"./);
+        }
+
         my $record = pack $template, 1, $self->type_number($type), $id, $len,
           $padlen,
           substr($body, $offset, $len);
@@ -245,6 +285,10 @@ sub write_records {
 
 sub write_response {
     my ($self, $tx) = @_;
+
+    # Debug
+    $self->app->log->debug('Writing FastCGI response.') if DEBUG;
+
     my $connection = $tx->connection;
     my $res        = $tx->res;
 

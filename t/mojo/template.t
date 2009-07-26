@@ -194,7 +194,7 @@ $mt->parse(<<'EOF');
 </html>
 EOF
 $mt->build;
-like($mt->code, qr/^sub /);
+like($mt->code, qr/^package /);
 like($mt->code, qr/lala/);
 unlike($mt->code, qr/ comment lalala /);
 ok(!defined($mt->compiled));
@@ -318,14 +318,14 @@ $mt->tag_start('[$-');
 $mt->tag_end('-$]');
 my $dir = File::Temp::tempdir();
 $file = File::Spec->catfile($dir, 'test.mt');
-is($mt->render_to_file(<<"EOF", $file), 0);
+is($mt->render_to_file(<<"EOF", $file), undef);
 <% my \$i = 23; %> foo bar
 \x{df}\x{0100}bar\x{263a} <%= \$i %>
 test
 EOF
 $mt = Mojo::Template->new;
 my $file2 = File::Spec->catfile($dir, 'test2.mt');
-is($mt->render_file_to_file($file, $file2), 0);
+is($mt->render_file_to_file($file, $file2), undef);
 $mt     = Mojo::Template->new;
 $output = $mt->render_file($file2);
 is($output, " foo bar\n\x{df}\x{0100}bar\x{263a} 23\ntest\n");

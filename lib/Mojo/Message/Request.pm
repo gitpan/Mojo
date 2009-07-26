@@ -194,9 +194,6 @@ sub _parse_env {
         elsif ($name eq 'REQUEST_URI') {
             $self->url->parse($value);
         }
-        elsif ($name eq 'PATH_INFO') {
-            $self->url->path->parse($value);
-        }
 
         # Query
         elsif ($name eq 'QUERY_STRING') {
@@ -208,6 +205,10 @@ sub _parse_env {
 
         # Base path
         elsif ($name eq 'SCRIPT_NAME') {
+
+            # Make sure there is a trailing slash (important for merging)
+            $value .= '/' unless $value =~ /\/$/;
+
             $self->url->base->path->parse($value);
         }
 
@@ -218,6 +219,20 @@ sub _parse_env {
             $self->url->base->scheme($1) if $1;
             $self->version($2)           if $2;
         }
+    }
+
+    # Path
+    if (my $value = $env->{PATH_INFO}) {
+
+        # Remove SCRIPT_NAME prefix if it's there
+        my $base = $self->url->base->path->to_string;
+        $value =~ s/^$base//;
+
+        # Make sure we have a leading slash
+        $value = "/$value" unless $value =~ /^\//;
+
+        # Parse
+        $self->url->path->parse($value);
     }
 
     # There won't be a start line or header when you parse environment

@@ -8,8 +8,8 @@ use warnings;
 use base 'Mojo::Server';
 use bytes;
 
-use IO::Handle;
 use IO::Poll 'POLLIN';
+use IO::Socket;
 
 use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
 
@@ -55,15 +55,15 @@ sub accept_connection {
 
     # Listen socket?
     unless ($self->{_listen}) {
-        my $fh = IO::Handle->new;
+        my $listen = IO::Socket->new;
 
         # Open
-        unless ($fh->fdopen(0, 'r')) {
+        unless ($listen->fdopen(0, 'r')) {
             $self->app->log->error("Can't open FastCGI socket fd0: $!");
             return;
         }
 
-        $self->{_listen} = $fh;
+        $self->{_listen} = $listen;
     }
 
     # Debug
@@ -71,7 +71,7 @@ sub accept_connection {
 
     # Accept
     my $connection;
-    unless (accept $connection, $self->{_listen}) {
+    unless ($connection = $self->{_listen}->accept) {
         $self->app->log->error("Can't accept FastCGI connection: $!");
         return;
     }

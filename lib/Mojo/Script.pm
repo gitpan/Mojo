@@ -89,19 +89,17 @@ sub get_data {
     my ($self, $data, $class) = @_;
     $class ||= ref $self;
 
-    # Cache
-    my $sections = $self->{data};
+    # Handle
+    my $d = do { no strict 'refs'; \*{"$class\::DATA"} };
 
-    # Slurp
-    $sections = do {
-        local $/;
-        eval "package $class; <DATA>";
-    } unless $sections;
+    # Shortcut
+    return unless fileno $d;
 
-    $self->{data} ||= $sections;
+    # Reset
+    seek $d, 0, 0;
 
     # Split
-    my @data = split /^__(.+)__\r?\n/m, $sections;
+    my @data = split /^@@\s+(.+)\s*\r?\n/m, join '', <$d>;
 
     # Remove split garbage
     shift @data;
@@ -223,7 +221,7 @@ Mojo::Script - Script Base Class
 
     1;
     __DATA__
-    __foo_bar__
+    @@ foo_bar
     % for (1 .. 5) {
         Hello World!
     % }

@@ -76,7 +76,7 @@ implements the following new ones.
 =cut
 
 __DATA__
-__mojo__
+@@ mojo
 % my $class = shift;
 #!/usr/bin/env perl
 
@@ -102,7 +102,7 @@ EOF
 
 # Start the script system
 Mojo::Scripts->new->run(@ARGV);
-__appclass__
+@@ appclass
 % my $class = shift;
 package <%= $class %>;
 
@@ -115,13 +115,12 @@ sub handler {
     my ($self, $tx) = @_;
 
     # Hello world!
-    $tx->res->code(200);
     $tx->res->headers->content_type('text/plain');
     $tx->res->body('Hello Mojo!');
 }
 
 1;
-__test__
+@@ test
 % my $class = shift;
 #!/usr/bin/env perl
 

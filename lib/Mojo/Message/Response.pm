@@ -10,7 +10,8 @@ use base 'Mojo::Message';
 use Mojo::Cookie::Response;
 use Mojo::Date;
 
-__PACKAGE__->attr([qw/code message/]);
+__PACKAGE__->attr('code', default => sub {200});
+__PACKAGE__->attr('message');
 
 # Umarked codes are from RFC 2616 (mostly taken from LWP)
 my %MESSAGES = (
@@ -112,7 +113,7 @@ sub fix_headers {
 sub is_status_class {
     my ($self, $class) = @_;
     return 1 if ($self->code >= $class && $self->code < ($class + 100));
-    return 0;
+    return;
 }
 
 sub parse {

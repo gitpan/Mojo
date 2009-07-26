@@ -13,15 +13,21 @@ sub badtemplate { shift->render(template => 'badtemplate.html.epl') }
 
 sub index { shift->stash(layout => 'default', msg => 'Hello World!') }
 
+sub something {
+    my $self = shift;
+    $self->res->headers->header('X-Bender', 'Kiss my shiny metal ass!');
+    $self->render(
+        text => $self->ctx->url_for('something', something => '42'));
+}
+
 sub syntaxerror { shift->render(template => 'syntaxerror.html.epl') }
 
 sub templateless { shift->render(handler => 'test') }
 
 sub test {
     my ($self, $c) = @_;
-    $c->res->code(200);
     $c->res->headers->header('X-Bender', 'Kiss my shiny metal ass!');
-    $c->res->body($c->url_for(controller => 'bar'));
+    $c->render(text => $c->url_for(controller => 'bar'));
 }
 
 sub willdie { die 'for some reason' }

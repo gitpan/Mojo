@@ -18,7 +18,7 @@ __PACKAGE__->attr('home', default => sub { Mojo::Home->new });
 __PACKAGE__->attr('log',  default => sub { Mojo::Log->new });
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.991240';
+our $VERSION = '0.991241';
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -56,7 +56,6 @@ Mojo - The Web In A Box!
         my ($self, $tx) = @_;
 
         # Hello world!
-        $tx->res->code(200);
         $tx->res->headers->content_type('text/plain');
         $tx->res->body('Congratulations, your Mojo is working!');
     }
@@ -193,7 +192,7 @@ Shu Cho
 
 Uwe Voelker
 
-vti
+Viacheslav Tikhanovskii
 
 Yuki Kimoto
 

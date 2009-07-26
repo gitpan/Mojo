@@ -46,11 +46,11 @@ sub is_level {
     my ($self, $level) = @_;
 
     # Shortcut
-    return 0 unless $level;
+    return unless $level;
 
     # Check
     $level = lc $level;
-    my $current = $self->level;
+    my $current = $ENV{MOJO_LOG_LEVEL} || $self->level;
     return $LEVEL->{$level} >= $LEVEL->{$current};
 }
 

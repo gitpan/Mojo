@@ -24,7 +24,12 @@ __PACKAGE__->attr('static',
     default => sub { MojoX::Dispatcher::Static->new });
 __PACKAGE__->attr('types', default => sub { MojoX::Types->new });
 
-# The usual constructor stuff
+# It's just like the story of the grasshopper and the octopus.
+# All year long, the grasshopper kept burying acorns for the winter,
+# while the octopus mooched off his girlfriend and watched TV.
+# But then the winter came, and the grasshopper died,
+# and the octopus ate all his acorns.
+# And also he got a racecar. Is any of this getting through to you?
 sub new {
     my $self = shift->SUPER::new(@_);
 
@@ -48,23 +53,33 @@ sub new {
 
     # Run mode
     $mode = $mode . '_mode';
-    $self->$mode if $self->can($mode);
+    eval { $self->$mode } if $self->can($mode);
+    $self->log->error(qq/Mode "$mode" failed: $@/) if $@;
 
     # Startup
-    $self->startup(@_);
+    eval { $self->startup(@_) };
+    $self->log->error("Startup failed: $@") if $@;
 
     # Load context class
-    Mojo::Loader->new->load($self->ctx_class);
+    my $class = $self->ctx_class;
+    if (my $e = Mojo::Loader->new->load($class)) {
+        $self->log->error(
+            ref $e
+            ? qq/Couldn't load context class "$class": $e/
+            : qq/Context class "$class" doesn't exist./
+        );
+    }
 
     return $self;
 }
 
+# The context builder
 sub build_ctx {
     my $self = shift;
     return $self->ctx_class->new(app => $self, tx => shift);
 }
 
-# You could just overload this method
+# The default dispatchers with exception handling
 sub dispatch {
     my ($self, $c) = @_;
 
@@ -103,8 +118,9 @@ sub handler {
     # Start timer
     my $start = [Time::HiRes::gettimeofday()];
 
-    # Build context and dispatch
-    $self->dispatch($self->build_ctx($tx));
+    # Build context and process
+    eval { $self->process($self->build_ctx($tx)) };
+    $self->log->error("Processing request failed: $@") if $@;
 
     # End timer
     my $elapsed = sprintf '%f',
@@ -112,6 +128,9 @@ sub handler {
     my $rps = $elapsed == 0 ? '??' : sprintf '%.3f', 1 / $elapsed;
     $self->log->debug("Request took $elapsed seconds ($rps/s).");
 }
+
+# This will run for each request
+sub process { shift->dispatch(@_) }
 
 # This will run once at startup
 sub startup { }
@@ -132,7 +151,7 @@ Mojolicious - Web Framework
 
         my $r = $self->routes;
 
-        $r->route('/(controller)/(action)')
+        $r->route('/:controller/:action')
           ->to(controller => 'foo', action => 'bar');
     }
 
@@ -192,6 +211,10 @@ new ones.
 =head2 C<handler>
 
     $tx = $mojo->handler($tx);
+
+=head2 C<process>
+
+    $mojo->process($c);
 
 =head2 C<startup>
 

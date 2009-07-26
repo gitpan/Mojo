@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 282;
+use Test::More tests => 305;
 
 use Mojo::Filter::Chunked;
 use Mojo::Headers;
@@ -428,7 +428,7 @@ is($req->build,
 
 # Status code and message
 my $res = Mojo::Message::Response->new;
-is($res->code,            undef);
+is($res->code,            200);
 is($res->default_message, 'OK');
 is($res->message,         undef);
 $res->message('Test');
@@ -598,7 +598,7 @@ is($res->build,
       . "lala\nfoobar\nperl rocks\n"
       . "\x0d\x0a--7am1X--");
 
-# Parse Lighttpd like CGI like environment variables and a body
+# Parse Lighttpd like CGI environment variables and a body
 $req = Mojo::Message::Request->new;
 $req->parse(
     HTTP_CONTENT_LENGTH => 11,
@@ -614,16 +614,18 @@ $req->parse('Hello World');
 is($req->state,           'done');
 is($req->method,          'POST');
 is($req->headers->expect, '100-continue');
-is($req->url->path,       '/test/index.cgi/foo/bar');
-is($req->url->base->path, '/test/index.cgi');
+is($req->url->path,       '/foo/bar');
+is($req->url->base->path, '/test/index.cgi/');
 is($req->url->host,       'localhost');
 is($req->url->port,       8080);
 is($req->url->query,      'lalala=23&bar=baz');
 is($req->minor_version,   '0');
 is($req->major_version,   '1');
 is($req->body,            'Hello World');
+is($req->url->to_abs->to_string,
+    'http://localhost:8080/test/index.cgi/foo/bar?lalala=23&bar=baz');
 
-# Parse Apache like CGI like environment variables and a body
+# Parse Apache like CGI environment variables and a body
 $req = Mojo::Message::Request->new;
 $req->parse(
     CONTENT_LENGTH  => 11,
@@ -640,8 +642,8 @@ $req->parse('hello=world');
 is($req->state,           'done');
 is($req->method,          'POST');
 is($req->headers->expect, '100-continue');
-is($req->url->path,       '/test/index.cgi/foo/bar');
-is($req->url->base->path, '/test/index.cgi');
+is($req->url->path,       '/foo/bar');
+is($req->url->base->path, '/test/index.cgi/');
 is($req->url->host,       'localhost');
 is($req->url->port,       8080);
 is($req->url->query,      'lalala=23&bar=baz');
@@ -649,6 +651,68 @@ is($req->minor_version,   '0');
 is($req->major_version,   '1');
 is($req->body,            'hello=world');
 is_deeply($req->param('hello'), 'world');
+is($req->url->to_abs->to_string,
+    'http://localhost:8080/test/index.cgi/foo/bar?lalala=23&bar=baz');
+
+# Parse Apache 2.2.11 like CGI environment variables and a body
+$req = Mojo::Message::Request->new;
+$req->parse(
+    CONTENT_LENGTH  => 11,
+    CONTENT_TYPE    => 'application/x-www-form-urlencoded',
+    PATH_INFO       => '/foo/bar',
+    QUERY_STRING    => '',
+    REQUEST_METHOD  => 'GET',
+    SCRIPT_NAME     => '/test/index.cgi',
+    HTTP_HOST       => 'localhost',
+    SERVER_PROTOCOL => 'HTTP/1.0'
+);
+is($req->method,                 'GET');
+is($req->url->host,              'localhost');
+is($req->url->path,              '/foo/bar');
+is($req->url->base->path,        '/test/index.cgi/');
+is($req->minor_version,          '0');
+is($req->major_version,          '1');
+is($req->url->to_abs->to_string, 'http://localhost/test/index.cgi/foo/bar');
+
+# Parse Apache 2.2.11 like CGI environment variables and a body
+# (no SCRIPT_NAME)
+$req = Mojo::Message::Request->new;
+$req->parse(
+    CONTENT_LENGTH  => 11,
+    CONTENT_TYPE    => 'application/x-www-form-urlencoded',
+    PATH_INFO       => '/foo/bar',
+    QUERY_STRING    => '',
+    REQUEST_METHOD  => 'GET',
+    HTTP_HOST       => 'localhost',
+    SERVER_PROTOCOL => 'HTTP/1.0'
+);
+is($req->method,                 'GET');
+is($req->url->host,              'localhost');
+is($req->url->path,              '/foo/bar');
+is($req->url->base->path,        '');
+is($req->minor_version,          '0');
+is($req->major_version,          '1');
+is($req->url->to_abs->to_string, 'http://localhost/foo/bar');
+
+# Parse Apache 2.2.11 like CGI environment variables and a body
+# (no PATH_INFO)
+$req = Mojo::Message::Request->new;
+$req->parse(
+    CONTENT_LENGTH  => 11,
+    CONTENT_TYPE    => 'application/x-www-form-urlencoded',
+    QUERY_STRING    => '',
+    REQUEST_METHOD  => 'GET',
+    SCRIPT_NAME     => '/test/index.cgi',
+    HTTP_HOST       => 'localhost',
+    SERVER_PROTOCOL => 'HTTP/1.0'
+);
+is($req->method,                 'GET');
+is($req->url->host,              'localhost');
+is($req->url->path,              '');
+is($req->url->base->path,        '/test/index.cgi/');
+is($req->minor_version,          '0');
+is($req->major_version,          '1');
+is($req->url->to_abs->to_string, 'http://localhost/test/index.cgi');
 
 # Parse response with cookie
 $res = Mojo::Message::Response->new;

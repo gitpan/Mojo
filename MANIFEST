@@ -61,10 +61,12 @@ lib/Mojo/URL.pm
 lib/Mojolicious.pm
 lib/Mojolicious/Context.pm
 lib/Mojolicious/Controller.pm
+lib/Mojolicious/Lite.pm
 lib/Mojolicious/Renderer.pm
 lib/Mojolicious/Script/Daemon.pm
 lib/Mojolicious/Script/Generate.pm
 lib/Mojolicious/Script/Generate/App.pm
+lib/Mojolicious/Script/Generate/LiteApp.pm
 lib/Mojolicious/Script/Mojo.pm
 lib/Mojolicious/Script/Test.pm
 lib/Mojolicious/Scripts.pm
@@ -128,6 +130,8 @@ t/mojolicious/lib/MojoliciousTest/Foo/Bar.pm
 t/mojolicious/lib/MojoliciousTest/SyntaxError.pm
 t/mojolicious/lib/MojoliciousTest2/Foo.pm
 t/mojolicious/lib/MojoliciousTestController.pm
+t/mojolicious/lib/SingleFileTestApp.pm
+t/mojolicious/lite_app.t
 t/mojolicious/public/hello.txt
 t/mojolicious/public_dev/hello.txt
 t/mojolicious/templates/23.html

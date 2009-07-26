@@ -28,22 +28,29 @@ sub bridge { shift->route(@_)->inline(1) }
 
 sub is_endpoint {
     my $self = shift;
-    return 0 if $self->inline;
+    return   if $self->inline;
     return 1 if $self->block;
-    return 0 if @{$self->children};
+    return   if @{$self->children};
     return 1;
 }
 
 # Life can be hilariously cruel.
 sub match {
-    my ($self, $match) = @_;
+    my $self  = shift;
+    my $match = shift;
 
     # Shortcut
     return unless $match;
 
     # Match object
-    $match = MojoX::Routes::Match->new($match)
+    $match = MojoX::Routes::Match->new($match, @_)
       unless ref $match && $match->isa('MojoX::Routes::Match');
+
+    # Request method
+    if (my $methods = $self->{_methods}) {
+        my $m = lc $match->method;
+        return unless $methods->{$m};
+    }
 
     # Path
     my $path = $match->path;
@@ -169,6 +176,21 @@ sub url_for {
     return $url;
 }
 
+sub via {
+    my $self = shift;
+
+    # Methods
+    my $methods = ref $_[0] ? $_[0] : [@_];
+
+    # Shortcut
+    return $self unless @$methods;
+
+    # Cache
+    $self->{_methods} = {map { lc $_ => 1 } @$methods};
+
+    return $self;
+}
+
 sub waypoint { shift->route(@_)->block(1) }
 
 1;
@@ -230,12 +252,12 @@ follwing the ones.
 =head2 C<new>
 
     my $routes = MojoX::Routes->new;
-    my $routes = MojoX::Routes->new('/(controller)/(action)');
+    my $routes = MojoX::Routes->new('/:controller/:action');
 
 =head2 C<bridge>
 
     my $bridge = $routes->bridge;
-    my $bridge = $routes->bridge('/(controller)/(action)');
+    my $bridge = $routes->bridge('/:controller/:action');
 
 =head2 C<to>
 
@@ -249,15 +271,17 @@ follwing the ones.
 
 =head2 C<match>
 
-    my $match = $routes->match($tx);
+    $match = $routes->match($match);
+    my $match = $routes->match('/foo/bar');
+    my $match = $routes->match(get => '/foo/bar');
 
 =head2 C<parse>
 
-    $routes = $routes->parse('/(controller)/(action)');
+    $routes = $routes->parse('/:controller/:action');
 
 =head2 C<route>
 
-    my $route = $routes->route('/(c)/(a)', a => qr/\w+/);
+    my $route = $routes->route('/:c/:a', a => qr/\w+/);
 
 =head2 C<to_string>
 
@@ -268,8 +292,14 @@ follwing the ones.
     my $url = $routes->url_for($url);
     my $url = $routes->url_for($url, {foo => 'bar'});
 
+=head2 C<via>
+
+    $routes = $routes->via('get');
+    $routes = $routes->via(qw/get post/);
+    $routes = $routes->via([qw/get post/]);
+
 =head2 C<waypoint>
 
-    my $route = $routes->waypoint('/(c)/(a)', a => qr/\w+/);
+    my $route = $routes->waypoint('/:c/:a', a => qr/\w+/);
 
 =cut

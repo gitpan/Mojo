@@ -107,175 +107,328 @@ Mojolicious::Lite - Micro Web Framework
     # Using Mojolicious::Lite will enable "strict" and "warnings"
     use Mojolicious::Lite;
 
-    # GET /*/bar (self contained without a template)
-    get '/:foo/bar' => sub {
+    # Route with placeholder
+    get '/:foo' => sub {
         my $self = shift;
         $self->render(text => 'Yea baby!');
     };
 
-    # Shagadelic will start the Mojolicious script system
+    # Start the Mojolicious script system
     shagadelic;
 
-    # You can use all the normal script options from the command line
+=head1 DESCRIPTION
+
+L<Mojolicous::Lite> is a micro web framework built around L<Mojolicious>.
+
+A minimal application looks like this.
+
+    #!/usr/bin/env perl
+
+    use Mojolicious::Lite;
+
+    get '/' => sub {
+        my $self = shift;
+        $self->render(text => 'Yea baby!');
+    };
+
+    shagadelic;
+
+There is also a helper script to generate a small example application.
+
+    % mojolicious generate lite_app
+
+All the normal L<Mojolicious> script options are available from the command
+line.
+
     % ./myapp.pl daemon
     Server available at http://127.0.0.1:3000.
+
     % ./myapp.pl daemon 8080
     Server available at http://127.0.0.1:8080.
-    % ./myapp.pl mojo daemon_prefork
+
+    % ./myapp.pl daemon_prefork
     Server available at http://127.0.0.1:3000.
-    % ./myapp.pl mojo cgi
+
+    % ./myapp.pl cgi
     ...CGI output...
-    % ./myapp.pl mojo fastcgi
+
+    % ./myapp.pl fastcgi
     ...Blocking FastCGI main loop...
 
-    # The shagadelic call can be customized to override normal @ARGV use
-    shagadelic(qw/mojo cgi/);
+The shagadelic call that starts the L<Mojolicious> script system can be
+customized to override normal C<@ARGV> use.
 
-    # POST /foo/* (with name and matching template in the DATA section)
-    post '/foo/:bar' => 'index';
+    shagadelic('cgi');
+
+Routes are basically just fancy paths that can contain different kinds of
+placeholders.
+
+    # /foo
+    get '/foo' => sub {
+        my $self = shift;
+        $self->render(text => 'Yea baby!');
+    };
+
+All routes can have a name associated with them, this allows automatic
+template detection and back referencing with C<url_for>.
+
+    # /
+    get '/' => 'index';
+
+    # /foo
+    get '/foo' => 'foo';
+
     __DATA__
-    @@ index.html.eplite
-    % my $self = shift;
-    Our :bar placeholder matched <%= $self->stash('bar') %>.
-    We are <%= $self->url_for %>.
 
-    # GET /with_layout (template and layout)
+    @@ index.html.eplite
+    <a href="<%= shift->url_for('foo') %>">Foo</a>.
+
+    @@ foo.html.eplite
+    <a href="<%= shift->url_for('index') %>">Home</a>.
+
+Templates can have layouts.
+
+    # GET /with_layout
     get '/with_layout' => sub {
         my $self = shift;
         $self->render(template => 'with_layout', layout => 'green');
     };
+
     __DATA__
+
     @@ with_layout.html.eplite
     We've got content!
+
     @@ layouts/green.html.eplite
     <!html>
         <head><title>Green!</title></head>
-        <body><%= $self->render_inner %></body>
+        <body><%= shift->render_inner %></body>
     </html>
 
-    # GET /bar (using url_for to generate url for "index" aka. "/foo/:bar")
-    get '/bar' => sub {
+Route placeholders allow capturing parts of a request path until a C</> or
+C<.> separator occurs, results will be stored by name in the C<stash>.
+
+    # /foo/*
+    get '/foo/:bar' => sub {
         my $self = shift;
-        $self->render(text => $self->url_for('index', bar => 'something'));
+        my $bar  = $self->stash('bar');
+        $self->render(text => "Our :bar placeholder matched $bar");
     };
 
-    # /baz (nothing special, just allowing all methods)
-    any '/baz' => sub {
+    # /*something/foo
+    get '/(:bar)something/foo' => sub {
         my $self = shift;
-        $self->render(text => 'You called /baz with ' . $self->req->method);
+        my $bar  = $self->stash('bar');
+        $self->render(text => "Our :bar placeholder matched $bar");
     };
 
-    # GET /hello/* (matching everything except "/" after "/hello/")
+Relaxed placeholders allow matching of everything until a C</> occurs.
+
+    # GET /hello/*
     get '/hello/(.you)' => sub {
         shift->render(template => 'groovy');
     };
+
     __DATA__
+
     @@ groovy.html.eplite
     Your name is <%= shift->stash('you') %>.
 
-    # GET /hello/* (matching absolutely everything after "/hello/" including
-    # "/" and ".")
+Wildcard placeholders allow matching absolutely everything, including
+C</> and C<.>.
+
+    # /hello/*
     get '/hello/(*you)' => sub {
         shift->render(template => 'groovy');
     };
+
     __DATA__
+
     @@ groovy.html.eplite
     Your name is <%= shift->stash('you') %>.
 
-    # /:something (with special regex constraint only matching digits)
-    any '/:something' => [something => qr/\d+/] => sub {
-        my $self = shift;
-        $self->render(text => 'Something: ' . $self->stash('something'));
+Routes can be restricted to specific request methods.
+
+    # GET /bye
+    get '/bye' => sub { shift->render(text => 'Bye!') };
+
+    # POST /bye
+    post '/bye' => sub { shift->render(text => 'Bye!') };
+
+    # GET|POST|DELETE /bye
+    any [qw/get post delete/] => '/bye' => sub {
+        shift->render(text => 'Bye!');
     };
 
-    # GET /hello/* (with default value and template)
+    # /baz
+    any '/baz' => sub {
+        my $self   = shift;
+        my $method = $self->req->method;
+        $self->render(text => "You called /baz with $method");
+    };
+
+All placeholders get compiled to a regex internally, with regex constraints
+this process can be easily customized.
+
+    # /*
+    any '/:bar' => [bar => qr/\d+/] => sub {
+        my $self = shift;
+        my $bar  = $self->stash('bar');
+        $self->render(text => "Our :bar placeholder matched $bar");
+    };
+
+Routes allow default values to make placeholders optional.
+
+    # /hello/*
     get '/hello/:name' => {name => 'Sebastian'} => sub {
         my $self = shift;
         $self->render(template => 'groovy', format => 'txt');
     };
+
     __DATA__
+
     @@ groovy.txt.eplite
     % my $self = shift;
     My name is <%= $self->stash('name') %>.
 
-    # GET|POST /bye (allowing GET and POST)
-    any [qw/get post/] => '/bye' => sub {
-        my $self = shift;
-        $self->render(text => 'Bye!');
-    };
+All those features can be easily used together.
 
-    # GET /everything/*?name=* (using a lot of features together)
+    # /everything/*?name=*
     get '/everything/:stuff' => [stuff => qr/\d+/] => {stuff => 23} => sub {
         shift->render(template => 'welcome');
     };
+
     __DATA__
+
     @@ welcome.html.eplite
     % my $self = shift;
     Stuff is <%= $self->stash('stuff') %>.
     Query param name is <%= $self->req->param('name') %>.
 
-    # GET /detection.html (format detection with multiple templates)
-    # GET /detection.txt
+Here's a fully functional example for a html form handling application using
+multiple features at once.
+
+    #!/usr/bin/env perl
+
+    use Mojolicious::Lite;
+
+    get '/' => 'index';
+
+    post '/form' => 'form' => sub {
+        my $self = shift;
+
+        my $groovy = $self->req->param('groovy') || 'Austin Powers';
+        $groovy =~ s/[^\w\s]+//g;
+
+        $self->render(
+            template => 'welcome',
+            layout   => 'funky',
+            groovy   => $groovy
+        );
+    };
+
+    shagadelic;
+    __DATA__
+
+    @@ index.html.eplite
+    % my $self = shift;
+    % $self->stash(layout => 'funky');
+    Who is groovy?
+    <form action="<%= $self->url_for('form') %>" method="POST">
+        <input type="text" name="groovy" />
+        <input type="submit" value="Woosh!">
+    </form>
+
+    @@ welcome.html.eplite
+    % my $self = shift;
+    <%= $self->stash('groovy') %> is groovy!
+    <%= $self->render_partial(template => 'menu') %>
+
+    @@ menu.html.eplite
+    <a href="<%= shift->url_for('index') %>">Try again</a>
+
+    @@ layouts/funky.html.eplite
+    % my $self = shift;
+    <!html>
+        <head><title>Funky!</title></head>
+        <body>
+            <%= $self->render_inner %>
+        </body>
+    </html>
+
+Formats can be automatically detected by looking at file extensions.
+
+    # /detection.html
+    # /detection.txt
     get '/detection' => sub {
         my $self = shift;
         $self->render(template => 'detected');
     };
+
     __DATA__
+
     @@ detected.html.eplite
     <!html>
         <head><title>Detected!</title></head>
         <body>HTML was detected.</body>
     </html>
+
     @@ detected.txt.eplite
     TXT was detected.
 
-    # /external (render external template "templates/foo/bar.html.epl")
+External templates will be searched by the renderer in a C<templates>
+directory.
+
+    # /external
     any '/external' => sub {
         my $self = shift;
         $self->render(template => 'foo/bar.html.epl');
     };
 
-    # /something.js (serving external static files, yes it's that simple)
+Static files will be automatically served from the C<public> directory if it
+exists.
+
     % mkdir public
     % mv something.js public/something.js
 
-    # To disable debug messages later in a production setup you can change
-    # the Mojolicious mode (the default mode will be development)
+To disable debug messages later in a production setup you can change the
+L<Mojolicious> mode, default will be C<development>.
+
     % MOJO_MODE=production ./myapp.pl
 
-    # Log messages will be automatically written to a "log/$mode.log" file if
-    # a log directory exists
+Log messages will be automatically written to a C<log/$mode.log> file if a
+C<log> directory exists.
+
     % mkdir log
 
-    # For more control you can also access the Mojolicious instance directly
+For more control the L<Mojolicious> instance can be accessed directly.
+
     app->log->level('error');
     app->routes->route('/foo/:bar')->via('get')->to(callback => sub {
         my $self = shift;
         $self->render(text => 'Hello Mojo!');
     });
 
-    # In case your lite apps need to grow, you can easily mix lite and real
-    # Mojolicious apps for a smooth transition process
+In case a lite app needs to grow, lite and real L<Mojolicous> applications
+can be easily mixed to make the transition process very smooth.
+
     package MyApp::Foo;
     use base 'Mojolicious::Controller';
+
     sub index {
         shift->render(text => 'It works!');
     }
+
     package main;
     use Mojolicious::Lite;
-    get '/bar' => sub {
-        shift->render(text => 'This too!');
-    };
+
+    get '/bar' => sub { shift->render(text => 'This too!') };
+
     app->routes->namespace('MyApp');
     app->routes->route('/foo/:action')->via('get')
       ->to(controller => 'foo', action => index);
+
     shagadelic;
-
-=head1 DESCRIPTION
-
-L<Mojolicous::Lite> is a micro web framework built upon L<Mojolicious> and
-L<Mojo>.
-For userfriendly documentation see L<Mojo::Manual::Mojolicious>.
 
 =head1 ATTRIBUTES
 

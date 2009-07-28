@@ -63,12 +63,9 @@ lib/Mojolicious/Context.pm
 lib/Mojolicious/Controller.pm
 lib/Mojolicious/Lite.pm
 lib/Mojolicious/Renderer.pm
-lib/Mojolicious/Script/Daemon.pm
 lib/Mojolicious/Script/Generate.pm
 lib/Mojolicious/Script/Generate/App.pm
 lib/Mojolicious/Script/Generate/LiteApp.pm
-lib/Mojolicious/Script/Mojo.pm
-lib/Mojolicious/Script/Test.pm
 lib/Mojolicious/Scripts.pm
 lib/MojoX/Context.pm
 lib/MojoX/Dispatcher/Routes.pm

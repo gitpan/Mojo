@@ -8,9 +8,10 @@ use warnings;
 use base 'Mojo::Script';
 
 __PACKAGE__->attr('description', default => <<'EOF');
-* Generate application directory structure. *
-Takes a name as option, by default MyMojoliciousApp will be used.
-    generate app TestApp
+Generate application directory structure.
+EOF
+__PACKAGE__->attr('usage', default => <<"EOF");
+usage: $0 generate app [NAME]
 EOF
 
 # Why can't she just drink herself happy like a normal person?
@@ -76,7 +77,17 @@ L<Mojo::Script::Generate::App> is a application generator.
 =head1 ATTRIBUTES
 
 L<Mojolicious::Script::Generate::App> inherits all attributes from
-L<Mojo::Script>.
+L<Mojo::Script> and implements the following new ones.
+
+=head2 C<description>
+
+    my $description = $app->description;
+    $app            = $app->description('Foo!');
+
+=head2 C<usage>
+
+    my $usage = $app->usage;
+    $app      = $app->usage('Foo!');
 
 =head1 METHODS
 
@@ -209,7 +220,6 @@ is($tx->res->headers->content_type, 'text/html');
 like($tx->res->content->file->slurp, qr/Mojolicious Web Framework/i);
 @@ exception
 % use Data::Dumper ();
-% use Mojo::ByteStream 'b';
 % my $self = shift;
 % my $s = $self->stash;
 % my $e = delete $s->{exception};
@@ -222,22 +232,22 @@ like($tx->res->content->file->slurp, qr/Mojolicious Web Framework/i);
         <pre><%= $e->message %></pre>
         <pre>
 % for my $line (@{$e->lines_before}) {
-    <%= $line->[0] %>: <%= b($line->[1])->html_encode %>
+    <%= $line->[0] %>: <%== $line->[1] %>
 % }
 % if ($e->line->[0]) {
-    <b><%= $e->line->[0] %>: <%= b($e->line->[1])->html_encode %></b>
+    <b><%= $e->line->[0] %>: <%== $e->line->[1] %></b>
 % }
 % for my $line (@{$e->lines_after}) {
-    <%= $line->[0] %>: <%= b($line->[1])->html_encode %>
+    <%= $line->[0] %>: <%== $line->[1] %>
 % }
         </pre>
         <pre>
 % for my $frame (@{$e->stack}) {
-<%= b($frame->[1])->html_encode %>: <%= $frame->[2] %>
+<%== $frame->[1] %>: <%= $frame->[2] %>
 % }
         </pre>
         <pre>
-%= b(Data::Dumper->new([$s])->Indent(1)->Terse(1)->Dump)->html_encode
+%== Data::Dumper->new([$s])->Indent(1)->Terse(1)->Dump
         </pre>
     </body>
 </html>

@@ -218,7 +218,7 @@ sub walk_stack {
         return $e if ref $e;
 
         # Break the chain
-        return 1 unless $e;
+        return unless $e;
     }
 
     # Done

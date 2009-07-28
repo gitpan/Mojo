@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Mojo
-version:            0.991241
+version:            0.991242
 abstract:           ~
 author:
     - Sebastian Riedel <sri@cpan.org>
@@ -21,6 +21,7 @@ requires:
     File::Spec::Functions:  0
     File::Temp:           0
     FindBin:              0
+    Getopt::Long:         0
     IO::File:             0
     IO::Poll:             0
     IO::Socket:           0

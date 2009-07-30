@@ -39,7 +39,62 @@ sub run {
 }
 
 1;
+__DATA__
+@@ mojo
+% my $class = shift;
+#!/usr/bin/env perl
 
+# Copyright (C) 2008-2009, Sebastian Riedel.
+
+use strict;
+use warnings;
+
+use FindBin;
+
+use lib "$FindBin::Bin/lib";
+use lib "$FindBin::Bin/../lib";
+
+$ENV{MOJO_APP} ||= '<%= $class %>';
+
+# Check if Mojo is installed
+eval 'use Mojo::Scripts';
+die <<EOF if $@;
+It looks like you don't have the Mojo Framework installed.
+Please visit http://mojolicious.org for detailed installation instructions.
+
+EOF
+
+# Start the script system
+Mojo::Scripts->new->run(@ARGV);
+@@ appclass
+% my $class = shift;
+package <%= $class %>;
+
+use strict;
+use warnings;
+
+use base 'Mojo';
+
+sub handler {
+    my ($self, $tx) = @_;
+
+    # Hello world!
+    $tx->res->headers->content_type('text/plain');
+    $tx->res->body('Hello Mojo!');
+}
+
+1;
+@@ test
+% my $class = shift;
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Test::More tests => 1;
+
+use_ok('<%= $class %>');
+__END__
 =head1 NAME
 
 Mojo::Script::Generate::App - Application Generator Script
@@ -80,59 +135,3 @@ implements the following new ones.
     $app = $app->run(@ARGV);
 
 =cut
-
-__DATA__
-@@ mojo
-% my $class = shift;
-#!/usr/bin/env perl
-
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
-use strict;
-use warnings;
-
-use FindBin;
-
-use lib "$FindBin::Bin/lib";
-use lib "$FindBin::Bin/../lib";
-
-$ENV{MOJO_APP} = '<%= $class %>';
-
-# Check if Mojo is installed
-eval 'use Mojo::Scripts';
-die <<EOF if $@;
-It looks like you don't have the Mojo Framework installed.
-Please visit http://mojolicious.org for detailed installation instructions.
-
-EOF
-
-# Start the script system
-Mojo::Scripts->new->run(@ARGV);
-@@ appclass
-% my $class = shift;
-package <%= $class %>;
-
-use strict;
-use warnings;
-
-use base 'Mojo';
-
-sub handler {
-    my ($self, $tx) = @_;
-
-    # Hello world!
-    $tx->res->headers->content_type('text/plain');
-    $tx->res->body('Hello Mojo!');
-}
-
-1;
-@@ test
-% my $class = shift;
-#!/usr/bin/env perl
-
-use strict;
-use warnings;
-
-use Test::More tests => 1;
-
-use_ok('<%= $class %>');

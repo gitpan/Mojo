@@ -23,7 +23,7 @@ sub add_chunk {
     return $self;
 }
 
-sub contains { index(shift->{content}, shift) >= 0 ? 1 : 0 }
+sub contains { index shift->{content}, shift }
 
 sub copy_to { shift->_write_to_file(@_) }
 
@@ -41,9 +41,12 @@ sub slurp { shift->content }
 
 sub _write_to_file {
     my ($self, $path) = @_;
+
+    # Write
     my $file = IO::File->new;
-    $file->open("> $path") or croak qq/Couldn't open file "$path": $!/;
+    $file->open("> $path") or croak qq/Can't' open file "$path": $!/;
     $file->syswrite($self->{content});
+
     return $self;
 }
 
@@ -58,7 +61,7 @@ Mojo::File::Memory - In-Memory File
 
     use Mojo::File::Memory;
 
-    my $file = Mojo::File::Memory->new('Hello!');
+    my $file = Mojo::File::Memory->new;
     $file->add_chunk('World!');
     print $file->slurp;
 
@@ -81,17 +84,13 @@ implements the following new ones.
 L<Mojo::File::Memory> inherits all methods from L<Mojo::File> and implements
 the following new ones.
 
-=head2 C<new>
-
-    my $file = Mojo::File::Memory->new('foo bar');
-
 =head2 C<add_chunk>
 
     $file = $file->add_chunk('test 123');
 
 =head2 C<contains>
 
-    my $contains = $file->contains('random string');
+    my $position = $file->contains('random string');
 
 =head2 C<copy_to>
 

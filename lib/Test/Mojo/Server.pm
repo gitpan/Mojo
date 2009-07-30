@@ -14,7 +14,7 @@ use FindBin;
 use IO::Socket::INET;
 use Mojo::Home;
 use Mojo::Script;
-use Test::Builder::Module;
+use Test::Builder;
 
 __PACKAGE__->attr([qw/command pid port/]);
 __PACKAGE__->attr('executable', default => 'mojo');
@@ -25,7 +25,7 @@ __PACKAGE__->attr('timeout',    default => 5);
 # Mr Gumble, this is a girl scouts meeting.
 # Is it, or is it you girls can't admit that you have a problem?
 sub new {
-    my $self = shift->SUPER::new();
+    my $self = shift->SUPER::new(@_);
     $self->{_tb} = Test::Builder->new;
     return $self;
 }

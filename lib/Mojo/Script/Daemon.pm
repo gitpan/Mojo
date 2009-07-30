@@ -9,7 +9,7 @@ use base 'Mojo::Script';
 
 use Mojo::Server::Daemon;
 
-use Getopt::Long 'GetOptionsFromArray';
+use Getopt::Long 'GetOptions';
 
 __PACKAGE__->attr('description', default => <<'EOF');
 Start application with HTTP 1.1 backend.
@@ -18,15 +18,16 @@ __PACKAGE__->attr('usage', default => <<"EOF");
 usage: $0 daemon [OPTIONS]
 
 These options are available:
-  --clients <limit>       Set maximum number of concurrent clients, defaults
+  --address <address>     Set local host bind address.
+  --clients <number>      Set maximum number of concurrent clients, defaults
                           to 1000.
-  --group <name>          Set group name of process.
+  --group <name>          Set group name for process.
   --keepalive <seconds>   Set keep-alive timeout, defaults to 15.
-  --port <port>           Set port to start daemon on, defaults to 3000.
+  --port <port>           Set port to start listening on, defaults to 3000.
   --queue <size>          Set listen queue size, defaults to SOMAXCONN.
-  --requests <limit>      Set the maximum number of requests per keep-alive
+  --requests <number>     Set the maximum number of requests per keep-alive
                           connection, defaults to 100.
-  --user <name>           Set user name of process.
+  --user <name>           Set user name for process.
 EOF
 
 
@@ -37,16 +38,16 @@ sub run {
     my $daemon = Mojo::Server::Daemon->new;
 
     # Options
-    my @options = @_ ? @_ : @ARGV;
-    GetOptionsFromArray(
-        \@options,
+    @ARGV = @_ if @_;
+    GetOptions(
+        'address=s'   => sub { $daemon->address($_[1]) },
         'clients=i'   => sub { $daemon->max_clients($_[1]) },
         'group=s'     => sub { $daemon->group($_[1]) },
         'keepalive=i' => sub { $daemon->keep_alive_timeout($_[1]) },
         'port=i'      => sub { $daemon->port($_[1]) },
         'queue=i'     => sub { $daemon->listen_queue_size($_[1]) },
         'requests=i'  => sub { $daemon->max_keep_alive_requests($_[1]) },
-        'user=s'      => sub { $daemon->user($_[1]) },
+        'user=s'      => sub { $daemon->user($_[1]) }
     );
 
     # Run

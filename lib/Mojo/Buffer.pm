@@ -11,24 +11,37 @@ use bytes;
 
 __PACKAGE__->attr('raw_length', default => 0);
 
-sub new {
-    my $self = shift->SUPER::new();
-    $self->add_chunk(join '', @_) if @_;
-    $self->{buffer} ||= '';
+sub add_chunk {
+    my ($self, $chunk) = @_;
+
+    # Shortcut
+    return $self unless $chunk;
+
+    # Raw length
+    $self->raw_length($self->raw_length + length $chunk);
+
+    # Store
+    $self->{_buffer} ||= '';
+    $self->{_buffer} .= $chunk;
+
     return $self;
 }
 
-sub add_chunk {
+sub contains {
     my ($self, $chunk) = @_;
-    $self->raw_length($self->raw_length + length $chunk);
-    $self->{buffer} .= $chunk;
-    return $self;
+
+    # Search
+    return index $self->{_buffer} || '', $chunk;
 }
 
 sub empty {
-    my $self   = shift;
-    my $buffer = $self->{buffer};
-    $self->{buffer} = '';
+    my $self = shift;
+
+    # Cleanup
+    my $buffer = $self->{_buffer};
+    my $x      = '';
+    $self->{_buffer} = '';
+
     return $buffer;
 }
 
@@ -36,30 +49,32 @@ sub get_line {
     my $self = shift;
 
     # No full line in buffer
-    return unless $self->{buffer} =~ /\x0d?\x0a/;
+    return unless ($self->{_buffer} || '') =~ /\x0d?\x0a/;
 
     # Locate line ending
-    my $pos = index $self->{buffer}, "\x0a";
+    my $pos = index $self->{_buffer}, "\x0a";
 
     # Extract line and ending
-    my $line = substr $self->{buffer}, 0, $pos + 1, '';
+    my $line = substr $self->{_buffer}, 0, $pos + 1, '';
     $line =~ s/(\x0d?\x0a)\z//;
 
     return $line;
 }
 
-sub length {
-    my $self = shift;
-    $self->{buffer} ||= '';
-    return length $self->{buffer};
-}
+sub length { length(shift->{_buffer} || '') }
 
 sub remove {
-    my ($self, $length) = @_;
-    return substr $self->{buffer}, 0, $length, '';
+    my ($self, $length, $chunk) = @_;
+
+    # Chunk to replace?
+    $chunk ||= '';
+
+    # Extract and replace
+    $self->{_buffer} ||= '';
+    return substr $self->{_buffer}, 0, $length, $chunk;
 }
 
-sub to_string { shift->{buffer} || '' }
+sub to_string { shift->{_buffer} || '' }
 
 1;
 __END__
@@ -72,7 +87,7 @@ Mojo::Buffer - A Simple In-Memory Buffer
 
     use Mojo::Buffer;
 
-    my $buffer = Mojo::Buffer->new('foo');
+    my $buffer = Mojo::Buffer->new;
     $buffer->add_chunk('bar');
     my $foo = $buffer->remove(3);
     my $bar = $buffer->empty;
@@ -85,39 +100,40 @@ L<Mojo::Buffer> is a simple in-memory buffer.
 
 L<Mojo::Buffer> implements the following attributes.
 
-=head2 C<length>
-
-    my $length = $buffer->length;
-
 =head2 C<raw_length>
 
-    my $raw_length = $buffer->raw_length;
+    my $length = $buffer->raw_length;
+    $buffer    = $buffer->raw_length(23);
 
 =head1 METHODS
 
 L<Mojo::Buffer> inherits all methods from L<Mojo::Base> and implements
 the following new ones.
 
-=head2 C<new>
-
-    my $buffer = Mojo::Buffer->new;
-    my $buffer = Mojo::Buffer->new('foobarbaz');
-
 =head2 C<add_chunk>
 
     $buffer = $buffer->add_chunk('foo');
 
+=head2 C<contains>
+
+    my $position = $buffer->contains('something');
+
 =head2 C<empty>
 
-    my $string = $buffer->empty;
+    my $chunk = $buffer->empty;
 
 =head2 C<get_line>
 
    my $line = $buffer->get_line;
 
+=head2 C<length>
+
+    my $length = $buffer->length;
+
 =head2 C<remove>
 
-    my $string = $buffer->remove(4);
+    my $chunk = $buffer->remove(4);
+    my $chunk = $buffer->remove(4, 'abcd');
 
 =head2 C<to_string>
 

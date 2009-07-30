@@ -126,10 +126,10 @@ sub parse {
 }
 
 sub parse_until_body {
-    my $self = shift;
+    my ($self, $chunk) = @_;
 
     # Buffer
-    $self->buffer->add_chunk(join '', @_) if @_;
+    $self->buffer->add_chunk($chunk);
 
     return $self->_parse(1);
 }
@@ -206,7 +206,7 @@ sub _parse_start_line {
             $self->message($4);
             $self->state('content');
         }
-        else { $self->error('Parser error: Invalid response line') }
+        else { $self->error('Parser error: Invalid response line.') }
     }
 }
 

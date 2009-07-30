@@ -158,6 +158,9 @@ sub _fix_template {
     $self->precedence([sort keys %{$self->handler}])
       unless $self->precedence;
 
+    # Make sure we are portable
+    $template = File::Spec->catfile(split '/', $template) if $template;
+
     # Format
     return unless $template = $self->_fix_format($c, $template);
 

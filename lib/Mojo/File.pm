@@ -18,7 +18,7 @@ use Mojo::ByteStream 'b';
 
 use constant TMPDIR => $ENV{MOJO_TMPDIR} || File::Spec->tmpdir;
 
-__PACKAGE__->attr('cleanup');
+__PACKAGE__->attr([qw/cleanup path/]);
 __PACKAGE__->attr(
     'handle',
     default => sub {
@@ -48,8 +48,9 @@ __PACKAGE__->attr(
             my $sum = b(time . rand(999999999))->md5_sum;
             $file = "$base.$sum";
         }
-
         $self->path($file);
+
+        # Enable automatic cleanup
         $self->cleanup(1);
 
         # Open for read/write access
@@ -61,19 +62,13 @@ __PACKAGE__->attr(
 sub DESTROY {
     my $self = shift;
     my $file = $self->path;
+
+    # Cleanup
     unlink $file if $self->cleanup && -f $file;
 }
 
-# Hi, Super Nintendo Chalmers!
-sub new {
-    my $self = shift->SUPER::new();
-    $self->add_chunk(join '', @_) if @_;
-    return $self;
-}
-
 sub add_chunk {
-    my $self = shift;
-    my $chunk = join '', @_;
+    my ($self, $chunk) = @_;
 
     # Shortcut
     return unless $chunk;
@@ -104,7 +99,7 @@ sub contains {
         $offset += $read;
         $window .= $buffer;
         my $pos = index $window, $bytestream;
-        return 1 if $pos >= 0;
+        return $pos if $pos >= 0;
         substr $window, 0, $read, '';
     }
 
@@ -114,8 +109,11 @@ sub contains {
 sub copy_to {
     my ($self, $path) = @_;
     my $src = $self->path;
+
+    # Copy
     File::Copy::copy($src, $path)
-      || croak qq/Couldn't copy file "$src" to "$path": $!/;
+      or croak qq/Can't copy file "$src" to "$path": $!/;
+
     return $self;
 }
 
@@ -133,6 +131,7 @@ sub get_chunk {
 sub length {
     my $self = shift;
 
+    # File size
     my $file = $self->path;
     return -s $file if $file;
 
@@ -142,22 +141,12 @@ sub length {
 sub move_to {
     my ($self, $path) = @_;
     my $src = $self->path;
+
+    # Move
     File::Copy::move($src, $path)
-      || croak qq/Couldn't move file "$src" to "$path": $!/;
+      or croak qq/Can't move file "$src" to "$path": $!/;
+
     return $self;
-}
-
-sub path {
-    my ($self, $file) = @_;
-
-    # Set
-    if ($file) {
-        $self->{path} = $file;
-        return $self;
-    }
-
-    # Get
-    return $self->{path};
 }
 
 sub slurp {
@@ -186,8 +175,11 @@ Mojo::File - File
 
     use Mojo::File;
 
-    my $file = Mojo::File->new('Hello!');
+    my $file = Mojo::File->new;
     $file->add_chunk('World!');
+    print $file->slurp;
+
+    my $file = Mojo::File->new(path => '/foo/bar.txt');
     print $file->slurp;
 
 =head1 DESCRIPTION
@@ -218,17 +210,13 @@ L<Mojo::File> implements the following attributes.
 L<Mojo::File> inherits all methods from L<Mojo::Base> and implements the
 following new ones.
 
-=head2 C<new>
-
-    my $file = Mojo::File->new('Hello World!');
-
 =head2 C<add_chunk>
 
     $file = $file->add_chunk('test 123');
 
 =head2 C<contains>
 
-    my $contains = $file->contains('random string');
+    my $position = $file->contains('random string');
 
 =head2 C<copy_to>
 

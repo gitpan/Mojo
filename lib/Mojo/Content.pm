@@ -19,7 +19,7 @@ use constant MAX_MEMORY_SIZE => $ENV{MOJO_MAX_MEMORY_SIZE} || 10240;
 
 __PACKAGE__->attr([qw/buffer filter_buffer/],
     default => sub { Mojo::Buffer->new });
-__PACKAGE__->attr([qw/body_cb filter builder_progress_cb/]);
+__PACKAGE__->attr([qw/body_cb filter progress_cb/]);
 __PACKAGE__->attr('file',    default => sub { Mojo::File::Memory->new });
 __PACKAGE__->attr('headers', default => sub { Mojo::Headers->new });
 __PACKAGE__->attr([qw/raw_header_length relaxed/], default => 0);
@@ -70,7 +70,12 @@ sub build_headers {
 
 sub body_contains {
     my ($self, $chunk) = @_;
-    return $self->file->contains($chunk);
+
+    # Found
+    return 1 if $self->file->contains($chunk) >= 0;
+
+    # Not found
+    return;
 }
 
 sub body_length { shift->file->length }
@@ -79,8 +84,7 @@ sub get_body_chunk {
     my ($self, $offset) = @_;
 
     # Progress
-    $self->builder_progress_cb->($self, 'body', $offset)
-      if $self->builder_progress_cb;
+    $self->progress_cb->($self, 'body', $offset) if $self->progress_cb;
 
     # Body generator
     return $self->body_cb->($self, $offset) if $self->body_cb;
@@ -129,10 +133,10 @@ sub leftovers {
 }
 
 sub parse {
-    my $self = shift;
+    my ($self, $chunk) = @_;
 
     # Buffer
-    $self->filter_buffer->add_chunk(join '', @_) if @_;
+    $self->filter_buffer->add_chunk($chunk);
 
     # Parse headers
     $self->parse_until_body;
@@ -196,14 +200,14 @@ sub parse {
 }
 
 sub parse_until_body {
-    my $self = shift;
+    my ($self, $chunk) = @_;
 
     # Buffer
-    $self->filter_buffer->add_chunk(join '', @_) if @_;
+    $self->filter_buffer->add_chunk($chunk);
 
     # Parser started
     if ($self->is_state('start')) {
-        my $length            = length($self->filter_buffer->{buffer});
+        my $length            = $self->filter_buffer->length;
         my $raw_length        = $self->filter_buffer->raw_length;
         my $raw_header_length = $raw_length - $length;
         $self->raw_header_length($raw_header_length);
@@ -236,7 +240,7 @@ sub _parse_headers {
     $self->headers->buffer($self->filter_buffer);
     $self->headers->parse;
 
-    my $length            = length($self->headers->buffer->{buffer});
+    my $length            = $self->headers->buffer->length;
     my $raw_length        = $self->headers->buffer->raw_length;
     my $raw_header_length = $raw_length - $length;
 
@@ -298,10 +302,10 @@ implements the following new ones.
     my $buffer = $content->buffer;
     $content   = $content->buffer(Mojo::Buffer->new);
 
-=head2 C<builder_progress_cb>
+=head2 C<progress_cb>
 
-    my $cb   = $content->builder_progress_cb;
-    $content = $content->builder_progress_cb(sub {
+    my $cb   = $content->progress_cb;
+    $content = $content->progress_cb(sub {
         my $self = shift;
         print '+';
     });

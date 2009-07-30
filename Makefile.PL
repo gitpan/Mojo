@@ -14,29 +14,30 @@ use ExtUtils::MakeMaker;
 my $mm = $ExtUtils::MakeMaker::VERSION;
 
 # We only use core modules, so you shouldn't have to install anything besides
-# Perl 5.8!
+# Perl 5.8.1!
 WriteMakefile(
     NAME         => 'Mojo',
     VERSION_FROM => 'lib/Mojo.pm',
     AUTHOR       => 'Sebastian Riedel <sri@cpan.org>',
 
-    ($mm < 6.3002 ? () : ('LICENSE' => 'perl',)),
+    ($mm < 6.3002 ? () : ('LICENSE' => 'perl')),
 
     (   $mm < 6.46
         ? ()
         : ( META_MERGE => {
+                requires  => {perl => '5.008001'},
                 resources => {
-                    license    => 'http://dev.perl.org/licenses/',
-                    homepage   => 'http://mojolicious.org',
-                    repository => 'http://github.com/kraih/mojo/tree/master',
+                    homepage => 'http://mojolicious.org',
+                    license  => 'http://dev.perl.org/licenses/',
                     MailingList =>
                       'http://lists.kraih.com/cgi-bin/mailman/listinfo',
+                    repository => 'http://github.com/kraih/mojo/tree/master'
                 },
-                no_index => {directory => [qw/t/],},
+                no_index => {directory => [qw/t/]}
             },
             META_ADD => {
-                configure_requires => {},
                 build_requires     => {},
+                configure_requires => {}
             },
         )
     ),
@@ -62,7 +63,7 @@ WriteMakefile(
         'MIME::Base64'          => 0,
         'MIME::QuotedPrint'     => 0,
         'POSIX'                 => 0,
-        'Test::Builder::Module' => 0,
+        'Test::Builder'         => 0,
         'Test::Harness'         => 0,
         'Test::More'            => 0,
         'Time::HiRes'           => 0

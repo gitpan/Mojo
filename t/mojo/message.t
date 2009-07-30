@@ -323,21 +323,18 @@ is($req->build,
       . "Hello World!\n");
 
 # Build full HTTP 1.1 proxy request
-my $backup = $ENV{HTTP_PROXY} || '';
-$ENV{HTTP_PROXY} = 'http://foo:bar@127.0.0.1:8080';
 $req = Mojo::Message::Request->new;
 $req->method('GET');
 $req->url->parse('http://127.0.0.1/foo/bar');
 $req->headers->expect('100-continue');
 $req->body("Hello World!\n");
+$req->proxy('http://127.0.0.2:8080');
 is($req->build,
         "GET http://127.0.0.1/foo/bar HTTP/1.1\x0d\x0a"
       . "Expect: 100-continue\x0d\x0a"
       . "Host: 127.0.0.1\x0d\x0a"
-      . "Proxy-Authorization: Basic Zm9vOmJhcg==\x0d\x0a"
       . "Content-Length: 13\x0d\x0a\x0d\x0a"
       . "Hello World!\n");
-$ENV{HTTP_PROXY} = $backup;
 
 # Build HTTP 1.1 multipart request
 $req = Mojo::Message::Request->new;
@@ -371,7 +368,7 @@ $req->headers->transfer_encoding('chunked');
 my $counter  = 1;
 my $chunked  = Mojo::Filter::Chunked->new;
 my $counter2 = 0;
-$req->builder_progress_cb(sub { $counter2++ });
+$req->progress_cb(sub { $counter2++ });
 $req->body(
     sub {
         my $self  = shift;
@@ -792,7 +789,7 @@ is($req->build,
 # Parse full HTTP 1.0 request with cookies
 $req     = Mojo::Message::Request->new;
 $counter = 0;
-$req->parser_progress_cb(sub { $counter++ });
+$req->progress_cb(sub { $counter++ });
 $req->parse('GET /foo/bar/baz.html?fo');
 $req->parse("o=13#23 HTTP/1.0\x0d\x0aContent");
 $req->parse('-Type: text/');

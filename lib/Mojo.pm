@@ -7,18 +7,17 @@ use warnings;
 
 use base 'Mojo::Base';
 
-# No imports to make subclassing a bit easier
-require Carp;
-
+use Carp 'croak';
 use Mojo::Home;
 use Mojo::Log;
+use Mojo::Scripts;
 use Mojo::Transaction;
 
 __PACKAGE__->attr('home', default => sub { Mojo::Home->new });
 __PACKAGE__->attr('log',  default => sub { Mojo::Log->new });
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.991244';
+our $VERSION = '0.991245';
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -39,7 +38,21 @@ sub build_tx {
     return $tx;
 }
 
-sub handler { Carp::croak('Method "handler" not implemented in subclass') }
+sub handler { croak 'Method "handler" not implemented in subclass' }
+
+# Start script system
+sub start {
+    my $class = shift;
+
+    # We can be called on class or instance
+    $class = ref $class || $class;
+
+    # We are the application
+    $ENV{MOJO_APP} ||= $class;
+
+    # Start!
+    Mojo::Scripts->start(@_);
+}
 
 1;
 __END__
@@ -121,6 +134,11 @@ new ones.
 =head2 C<handler>
 
     $tx = $mojo->handler($tx);
+
+=head2 C<start>
+
+    Mojo->start;
+    Mojo->start('daemon');
 
 =head1 SUPPORT
 
@@ -218,13 +236,13 @@ Viacheslav Tikhanovskii
 
 Yuki Kimoto
 
-And thanks to everyone else i might have forgotten. (Please send me a mail)
-
 =head1 COPYRIGHT
 
 Copyright (C) 2008-2009, Sebastian Riedel.
 
+=head1 LICENSE
+
 This program is free software, you can redistribute it and/or modify it under
-the same terms as Perl 5.10.
+the terms of the Artistic License version 2.0.
 
 =cut

@@ -12,6 +12,8 @@ use IO::Poll qw/POLLERR POLLHUP POLLIN POLLOUT/;
 use IO::Socket;
 use Mojo::Pipeline;
 
+use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
+
 __PACKAGE__->attr([qw/address group user/]);
 __PACKAGE__->attr('keep_alive_timeout',      default => 15);
 __PACKAGE__->attr('listen_queue_size',       default => SOMAXCONN);
@@ -342,7 +344,7 @@ sub _read {
     my $p = $connection->{pipeline};
 
     # Read request
-    my $read = $socket->sysread(my $buffer, 4096, 0);
+    my $read = $socket->sysread(my $buffer, CHUNK_SIZE, 0);
 
     # Read error
     unless (defined $read && $buffer) {

@@ -7,14 +7,14 @@ use warnings;
 
 use base 'Mojo::Server::Daemon';
 
-use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
-
 use Carp 'croak';
 use Fcntl ':flock';
 use IO::File;
 use IO::Poll 'POLLIN';
 use IO::Socket;
 use POSIX qw/setsid WNOHANG/;
+
+use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
 
 __PACKAGE__->attr('cleanup_interval',                    default => 15);
 __PACKAGE__->attr('idle_timeout',                        default => 30);
@@ -29,6 +29,8 @@ __PACKAGE__->attr(
             'mojo_prefork.pid');
     }
 );
+
+use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
 
 # Marge? Since I'm not talking to Lisa,
 # would you please ask her to pass me the syrup?
@@ -273,7 +275,7 @@ sub _read_messages {
     $self->{_child_poll}->poll(1);
     my @readers = $self->{_child_poll}->handles(POLLIN);
     if (@readers) {
-        return unless $self->{_child_read}->sysread(my $buffer, 4096);
+        return unless $self->{_child_read}->sysread(my $buffer, CHUNK_SIZE);
         $self->{_buffer} .= $buffer;
     }
 

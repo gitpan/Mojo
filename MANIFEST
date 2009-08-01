@@ -78,9 +78,11 @@ lib/MojoX/Routes/Match.pm
 lib/MojoX/Routes/Pattern.pm
 lib/MojoX/Types.pm
 lib/Test/Mojo/Server.pm
+LICENSE
 Makefile.PL
 MANIFEST			This list of files
 MANIFEST.SKIP
+README
 rfc2388.txt
 rfc2616.txt
 rfc2965.txt

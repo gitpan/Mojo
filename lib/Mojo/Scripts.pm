@@ -118,6 +118,16 @@ sub run {
     return $self;
 }
 
+sub start {
+    my $self = shift;
+
+    # Arguments
+    my @args = @_ ? @_ : @ARGV;
+
+    # Run
+    ref $self ? $self->run(@args) : $self->new->run(@args);
+}
+
 1;
 __END__
 
@@ -159,6 +169,12 @@ following new ones.
 
 =head2 C<run>
 
+    $scripts = $scripts->run;
     $scripts = $scripts->run(@ARGV);
+
+=head2 C<start>
+
+    Mojo::Scripts->start;
+    Mojo::Scripts->start(@ARGV);
 
 =cut

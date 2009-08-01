@@ -16,6 +16,8 @@ use Mojo::File::Memory;
 use Mojo::Parameters;
 use Mojo::Upload;
 
+use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
+
 __PACKAGE__->attr('buffer',  default => sub { Mojo::Buffer->new });
 __PACKAGE__->attr('content', default => sub { Mojo::Content->new });
 __PACKAGE__->attr([qw/major_version minor_version/], default => 1);
@@ -230,7 +232,7 @@ sub get_start_line_chunk {
     $self->progress_cb->($self, 'start_line', $offset) if $self->progress_cb;
 
     my $copy = $self->_build_start_line;
-    return substr($copy, $offset, 4096);
+    return substr($copy, $offset, CHUNK_SIZE);
 }
 
 sub has_leftovers { shift->content->has_leftovers }

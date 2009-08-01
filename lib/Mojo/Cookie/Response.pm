@@ -9,25 +9,6 @@ use base 'Mojo::Cookie';
 
 use Mojo::ByteStream 'b';
 
-# Fields have values
-use constant RE_COOKIE_FIELDS => qr/
-    \A (
-          Version
-        | Path
-        | Domain
-        | Max-Age
-        | expires
-        | Secure
-        | HttpOnly   # IE6 FF3 Opera 9.5
-        | Comment
-    ) \z
-/xmsi;
-
-# Flags don't have values
-use constant RE_COOKIE_FLAGS => qr/
-    \A (?: Secure | HttpOnly ) \z
-/xmsi;
-
 # Remember the time he ate my goldfish?
 # And you lied and said I never had goldfish.
 # Then why did I have the bowl Bart? Why did I have the bowl?
@@ -36,7 +17,7 @@ sub parse {
     my @cookies;
 
     for my $knot ($self->_tokenize($string)) {
-      PARSE: for my $i (0 .. $#{$knot}) {
+        for my $i (0 .. $#{$knot}) {
             my ($name, $value) = @{$knot->[$i]};
 
             # Value might be quoted
@@ -47,13 +28,32 @@ sub parse {
                 push @cookies, Mojo::Cookie::Response->new;
                 $cookies[-1]->name($name);
                 $cookies[-1]->value($value);
-                next PARSE;
+                next;
             }
 
-            # Field or flag?
-            if (my @match = $name =~ RE_COOKIE_FIELDS) {
+            # Field
+            if (my @match =
+                $name =~ /
+                    (
+                      Comment
+                    | Domain
+                    | expires
+                    | HttpOnly   # IE6 FF3 Opera 9.5
+                    | Max-Age
+                    | Path
+                    | Port
+                    | Secure
+                    | Version
+                    )
+            /xmsi
+              )
+            {
+
+                # Underscore
                 (my $id = lc $match[0]) =~ tr/-/_/d;
-                $cookies[-1]->$id($id =~ RE_COOKIE_FLAGS ? 1 : $value);
+
+                # Flag?
+                $cookies[-1]->$id($id =~ /(?:Secure|HttpOnly)/i ? 1 : $value);
             }
         }
     }
@@ -77,6 +77,7 @@ sub to_string {
     if (defined(my $expires = $self->expires)) {
         $cookie .= "; expires=$expires";
     }
+    if (my $port     = $self->port)     { $cookie .= qq/; Port="$port"/ }
     if (my $secure   = $self->secure)   { $cookie .= "; Secure" }
     if (my $httponly = $self->httponly) { $cookie .= "; HttpOnly" }
     if (my $comment  = $self->comment)  { $cookie .= "; Comment=$comment" }

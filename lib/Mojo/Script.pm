@@ -102,8 +102,11 @@ sub get_data {
     # Slurp
     my $content = join '', <$d>;
 
+    # Ignore everything before __DATA__ (windows will seek to start of file)
+    $content =~ s/^.*\n__DATA__\n/\n/s;
+
     # Ignore everything after __END__
-    $content =~ s/__END__\n.*$//s;
+    $content =~ s/\n__END__\n.*$/\n/s;
 
     # Split
     my @data = split /^@@\s+(.+)\s*\r?\n/m, $content;

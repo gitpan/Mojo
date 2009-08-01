@@ -1,7 +1,7 @@
 --- #YAML:1.0
 name:               Mojo
-version:            0.991244
-abstract:           ~
+version:            0.991245
+abstract:           Web Framework
 author:
     - Sebastian Riedel <sri@cpan.org>
 license:            perl
@@ -14,6 +14,7 @@ requires:
     Data::Dumper:         0
     Digest::MD5:          0
     Encode:               0
+    ExtUtils::MakeMaker:  0
     File::Basename:       0
     File::Copy:           0
     File::Path:           0

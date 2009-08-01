@@ -13,6 +13,8 @@ use Mojo::Pipeline;
 use Mojo::Server;
 use Socket;
 
+use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
+
 __PACKAGE__->attr('continue_timeout',   default => 5);
 __PACKAGE__->attr('keep_alive_timeout', default => 15);
 
@@ -36,7 +38,7 @@ sub connect {
     # State machine
     $tx->client_connect;
 
-    return $tx;
+    return $self;
 }
 
 sub disconnect {
@@ -49,7 +51,7 @@ sub disconnect {
       ? $self->deposit_connection("$scheme:$host:$port", $tx->connection)
       : $tx->connection(undef);
 
-    return $tx;
+    return $self;
 }
 
 sub deposit_connection {
@@ -90,116 +92,38 @@ sub open_connection {
 # Marge, I'm going to Moe's. Send the kids to the neighbors,
 # I'm coming back loaded!
 sub process {
-    my ($self, @transactions) = @_;
-
-    # Parallel async io main loop... woot!
-    while (1) { last if $self->spin(@transactions) }
-
-    # Done
-    return @transactions;
+    my $self = shift;
+    while (1) { last if $self->spin(@_) }
+    return $self;
 }
 
 sub process_all {
     my ($self, @transactions) = @_;
 
-    my @finished;
-
     # Process until all transactions are finished
+    my @progress = @transactions;
     while (1) {
 
         # Process
-        my @done = $self->process(@transactions);
-        @transactions = ();
+        $self->process(@progress);
 
         # Check
-        for my $tx (@done) {
-            $tx->is_finished
-              ? push(@finished,     $tx)
-              : push(@transactions, $tx);
+        @progress = ();
+        for my $tx (@transactions) {
+            push @progress, $tx unless $tx->is_finished;
         }
 
         # Done
-        last unless @transactions;
+        last unless @progress;
     }
 
-    return @finished;
+    return $self;
 }
 
 sub process_app {
-    my ($self, $class, $client) = @_;
-
-    # Remote server
-    if (my $authority = $ENV{MOJO_REMOTE_APP}) {
-        $client->req->url->authority($authority);
-        return $self->process($client);
-    }
-
-    # Daemon start
-    my $daemon = Mojo::Server->new(app_class => $class);
-
-    # Client connecting
-    $client->client_connect;
-    $client->client_connected;
-
-    # Server accepting
-    my $server =
-      Mojo::Pipeline->new->server_accept($daemon->build_tx_cb->($daemon));
-
-    # Exchange
-    while ($client->is_writing || $server->is_writing) {
-
-        # Client writing?
-        if ($client->is_writing) {
-
-            # Client grabs chunk
-            my $buffer = $client->client_get_chunk || '';
-
-            # Client write and server read
-            $server->server_read($buffer);
-
-            # Client written
-            $client->client_written(length $buffer);
-        }
-
-        # Spin both
-        $client->client_spin;
-        $server->server_spin;
-
-        # Server writing?
-        if ($server->is_writing) {
-
-            # Server grabs chunk
-            my $buffer = $server->server_get_chunk || '';
-
-            # Server write and client read
-            $client->client_read($buffer);
-
-            # Server written
-            $server->server_written(length $buffer);
-        }
-
-        # Handle
-        $self->_handle_app($daemon, $server);
-
-        # Spin both
-        $server->server_spin;
-        $client->client_spin;
-
-        # Server takes care of leftovers
-        if (my $leftovers = $server->server_leftovers) {
-
-            # Server adds transaction
-            $server->server_accept($daemon->build_tx_cb->($daemon));
-
-            # Server reads leftovers
-            $server->server_read($leftovers);
-
-            # Handle
-            $self->_handle_app($daemon, $server);
-        }
-    }
-
-    return $client;
+    my $self = shift;
+    while (1) { last if $self->spin_app(@_) }
+    return $self;
 }
 
 sub spin {
@@ -336,7 +260,7 @@ sub spin {
 
         # Read chunk
         my $buffer;
-        my $read = $connection->sysread($buffer, 1024, 0);
+        my $read = $connection->sysread($buffer, CHUNK_SIZE, 0);
         $tx->error("Can't read from socket: $!") unless defined $read;
         return 1 if $tx->has_error;
 
@@ -345,6 +269,103 @@ sub spin {
     }
 
     return $done;
+}
+
+sub spin_app {
+    my ($self, $app, $client) = @_;
+
+    # Prepare
+    my $app_class = ref $app || $app;
+    if ($client->is_state('start')) {
+
+        # Daemon start
+        my $daemon = Mojo::Server->new;
+        $daemon->app($app) if ref $app;
+        $daemon->app_class($app_class);
+
+        # Client connecting
+        $client->client_connect;
+        $client->client_connected;
+
+        # Server accepting
+        my $server =
+          Mojo::Pipeline->new->server_accept($daemon->build_tx_cb->($daemon));
+
+        # Store
+        $client->connection($server);
+        $server->connection($daemon);
+    }
+
+    # Server
+    my $server = $client->connection;
+    my $daemon = $server->connection;
+
+    # Check class
+    if ($app_class ne $daemon->app_class) {
+        my $class = $daemon->app_class;
+        $client->error(qq/Application "$app_class" does not match "$class"./);
+        return 1;
+    }
+
+    # Exchange
+    if ($client->is_writing || $server->is_writing) {
+
+        # Client writing?
+        if ($client->is_writing) {
+
+            # Client grabs chunk
+            my $buffer = $client->client_get_chunk || '';
+
+            # Client write and server read
+            $server->server_read($buffer);
+
+            # Client written
+            $client->client_written(length $buffer);
+        }
+
+        # Spin both
+        $client->client_spin;
+        $server->server_spin;
+
+        # Server writing?
+        if ($server->is_writing) {
+
+            # Server grabs chunk
+            my $buffer = $server->server_get_chunk || '';
+
+            # Server write and client read
+            $client->client_read($buffer);
+
+            # Server written
+            $server->server_written(length $buffer);
+        }
+
+        # Handle
+        $self->_handle_app($daemon, $server);
+
+        # Spin both
+        $server->server_spin;
+        $client->client_spin;
+
+        # Server takes care of leftovers
+        if (my $leftovers = $server->server_leftovers) {
+
+            # Server adds transaction
+            $server->server_accept($daemon->build_tx_cb->($daemon));
+
+            # Server reads leftovers
+            $server->server_read($leftovers);
+
+            # Handle
+            $self->_handle_app($daemon, $server);
+        }
+    }
+
+    # Done
+    return 1 if $client->is_finished;
+
+    # More to do
+    return;
 }
 
 sub test_connection {
@@ -464,11 +485,11 @@ following new ones.
 
 =head2 C<connect>
 
-    $tx = $client->connect($tx);
+    $client = $client->connect($tx);
 
 =head2 C<disconnect>
 
-    $tx = $client->disconnect($tx);
+    $client = $client->disconnect($tx);
 
 =head2 C<deposit_connection>
 
@@ -480,19 +501,25 @@ following new ones.
 
 =head2 C<process>
 
-    @transactions = $client->process(@transactions);
+    $client = $client->process(@transactions);
 
 =head2 C<process_all>
 
-    @transactions = $client->process_all(@transactions);
+    $client = $client->process_all(@transactions);
 
 =head2 C<process_app>
 
-    $tx = $client->process_app('MyApp', $tx);
+    $client = $client->process_app($app, $tx);
+    $client = $client->process_app('MyApp', $tx);
 
 =head2 C<spin>
 
     my $done = $client->spin(@transactions);
+
+=head2 C<spin_app>
+
+    my $done = $client->spin_app($app, $tx);
+    my $done = $client->spin_app('MyApp', $tx);
 
 =head2 C<test_connection>
 

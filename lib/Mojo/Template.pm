@@ -13,6 +13,8 @@ use IO::File;
 use Mojo::ByteStream;
 use Mojo::Template::Exception;
 
+use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
+
 __PACKAGE__->attr('code',         default => '');
 __PACKAGE__->attr('comment_mark', default => '#');
 __PACKAGE__->attr([qw/compiled namespace/]);
@@ -283,7 +285,7 @@ sub render_file {
 
     # Slurp file
     my $tmpl = '';
-    while ($file->sysread(my $buffer, 4096, 0)) {
+    while ($file->sysread(my $buffer, CHUNK_SIZE, 0)) {
         $tmpl .= $buffer;
     }
 

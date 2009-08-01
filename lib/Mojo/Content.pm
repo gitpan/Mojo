@@ -15,6 +15,7 @@ use Mojo::File::Memory;
 use Mojo::Content::MultiPart;
 use Mojo::Headers;
 
+use constant CHUNK_SIZE      => $ENV{MOJO_CHUNK_SIZE}      || 4096;
 use constant MAX_MEMORY_SIZE => $ENV{MOJO_MAX_MEMORY_SIZE} || 10240;
 
 __PACKAGE__->attr([qw/buffer filter_buffer/],
@@ -98,7 +99,7 @@ sub get_header_chunk {
 
     # Normal headers
     my $copy = $self->_build_headers;
-    return substr($copy, $offset, 4096);
+    return substr($copy, $offset, CHUNK_SIZE);
 }
 
 sub has_leftovers {

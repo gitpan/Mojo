@@ -1,10 +1,10 @@
 --- #YAML:1.0
 name:               Mojo
-version:            0.991245
+version:            0.991246
 abstract:           Web Framework
 author:
     - Sebastian Riedel <sri@cpan.org>
-license:            perl
+license:            artistic_2
 distribution_type:  module
 configure_requires:  {}
 build_requires:  {}

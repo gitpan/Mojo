@@ -11,8 +11,7 @@ use Carp 'croak';
 use IO::File;
 
 __PACKAGE__->attr(
-    'handle',
-    default => sub {
+    handle => sub {
         my $self = shift;
 
         # Need a log file
@@ -22,10 +21,14 @@ __PACKAGE__->attr(
         my $file = IO::File->new;
         my $path = $self->path;
         $file->open(">> $path") or croak qq/Can't open log file "$path": $!/;
+
+        # utf8
+        $file->binmode(':utf8');
+
         return $file;
     }
 );
-__PACKAGE__->attr('level', default => 'debug');
+__PACKAGE__->attr(level => 'debug');
 __PACKAGE__->attr('path');
 
 my $LEVEL = {debug => 1, info => 2, warn => 3, error => 4, fatal => 5};

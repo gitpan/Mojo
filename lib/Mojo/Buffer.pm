@@ -9,7 +9,7 @@ use base 'Mojo::Base';
 use overload '""' => sub { shift->to_string }, fallback => 1;
 use bytes;
 
-__PACKAGE__->attr('raw_length', default => 0);
+__PACKAGE__->attr(raw_size => 0);
 
 sub add_chunk {
     my ($self, $chunk) = @_;
@@ -18,11 +18,11 @@ sub add_chunk {
     return $self unless $chunk;
 
     # Raw length
-    $self->raw_length($self->raw_length + length $chunk);
+    $self->raw_size($self->raw_size + length $chunk);
 
     # Store
-    $self->{_buffer} ||= '';
-    $self->{_buffer} .= $chunk;
+    $self->{buffer} ||= '';
+    $self->{buffer} .= $chunk;
 
     return $self;
 }
@@ -31,16 +31,16 @@ sub contains {
     my ($self, $chunk) = @_;
 
     # Search
-    return index $self->{_buffer} || '', $chunk;
+    return index $self->{buffer} || '', $chunk;
 }
 
 sub empty {
     my $self = shift;
 
     # Cleanup
-    my $buffer = $self->{_buffer};
+    my $buffer = $self->{buffer};
     my $x      = '';
-    $self->{_buffer} = '';
+    $self->{buffer} = '';
 
     return $buffer;
 }
@@ -49,19 +49,17 @@ sub get_line {
     my $self = shift;
 
     # No full line in buffer
-    return unless ($self->{_buffer} || '') =~ /\x0d?\x0a/;
+    return unless ($self->{buffer} || '') =~ /\x0d?\x0a/;
 
     # Locate line ending
-    my $pos = index $self->{_buffer}, "\x0a";
+    my $pos = index $self->{buffer}, "\x0a";
 
     # Extract line and ending
-    my $line = substr $self->{_buffer}, 0, $pos + 1, '';
+    my $line = substr $self->{buffer}, 0, $pos + 1, '';
     $line =~ s/(\x0d?\x0a)\z//;
 
     return $line;
 }
-
-sub length { length(shift->{_buffer} || '') }
 
 sub remove {
     my ($self, $length, $chunk) = @_;
@@ -70,11 +68,13 @@ sub remove {
     $chunk ||= '';
 
     # Extract and replace
-    $self->{_buffer} ||= '';
-    return substr $self->{_buffer}, 0, $length, $chunk;
+    $self->{buffer} ||= '';
+    return substr $self->{buffer}, 0, $length, $chunk;
 }
 
-sub to_string { shift->{_buffer} || '' }
+sub size { length(shift->{buffer} || '') }
+
+sub to_string { shift->{buffer} || '' }
 
 1;
 __END__
@@ -100,10 +100,10 @@ L<Mojo::Buffer> is a simple in-memory buffer.
 
 L<Mojo::Buffer> implements the following attributes.
 
-=head2 C<raw_length>
+=head2 C<raw_size>
 
-    my $length = $buffer->raw_length;
-    $buffer    = $buffer->raw_length(23);
+    my $size = $buffer->raw_size;
+    $buffer  = $buffer->raw_size(23);
 
 =head1 METHODS
 
@@ -126,14 +126,14 @@ the following new ones.
 
    my $line = $buffer->get_line;
 
-=head2 C<length>
-
-    my $length = $buffer->length;
-
 =head2 C<remove>
 
     my $chunk = $buffer->remove(4);
     my $chunk = $buffer->remove(4, 'abcd');
+
+=head2 C<size>
+
+    my $size = $buffer->size;
 
 =head2 C<to_string>
 

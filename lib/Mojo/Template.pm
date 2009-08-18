@@ -15,17 +15,17 @@ use Mojo::Template::Exception;
 
 use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
 
-__PACKAGE__->attr('code',         default => '');
-__PACKAGE__->attr('comment_mark', default => '#');
+__PACKAGE__->attr(code         => '');
+__PACKAGE__->attr(comment_mark => '#');
 __PACKAGE__->attr([qw/compiled namespace/]);
-__PACKAGE__->attr('encoding',        default => 'utf8');
-__PACKAGE__->attr('escape_mark',     default => '=');
-__PACKAGE__->attr('expression_mark', default => '=');
-__PACKAGE__->attr('line_start',      default => '%');
-__PACKAGE__->attr('template',        default => '');
-__PACKAGE__->attr('tree',            default => sub { [] });
-__PACKAGE__->attr('tag_start',       default => '<%');
-__PACKAGE__->attr('tag_end',         default => '%>');
+__PACKAGE__->attr(encoding        => 'utf8');
+__PACKAGE__->attr(escape_mark     => '=');
+__PACKAGE__->attr(expression_mark => '=');
+__PACKAGE__->attr(line_start      => '%');
+__PACKAGE__->attr(template        => '');
+__PACKAGE__->attr(tree            => sub { [] });
+__PACKAGE__->attr(tag_start       => '<%');
+__PACKAGE__->attr(tag_end         => '%>');
 
 sub build {
     my $self = shift;
@@ -66,7 +66,7 @@ sub build {
             # Expression that needs to be escaped
             if ($type eq 'escp') {
                 $lines[-1]
-                  .= "\$_M .= Mojo::ByteStream->new($value)->html_escape;";
+                  .= "\$_M .= Mojo::ByteStream->new($value)->xml_escape;";
             }
         }
     }
@@ -112,6 +112,10 @@ sub interpret {
 
     # Shortcut
     return unless $compiled;
+
+    # Catch warnings
+    local $SIG{__WARN__} =
+      sub { warn Mojo::Template::Exception->new(shift, $self->template) };
 
     # Catch errors
     local $SIG{__DIE__} =
@@ -387,11 +391,11 @@ like that.
 
     <% Inline Perl %>
     <%= Perl expression, replaced with result %>
-    <%== Perl expression, replaced with HTML escaped result %>
+    <%== Perl expression, replaced with XML escaped result %>
     <%# Comment, useful for debugging %>
     % Perl line
     %= Perl expression line, replaced with result
-    %== Perl expression line, replaced with HTML escaped result
+    %== Perl expression line, replaced with XML escaped result
     %# Comment line, useful for debugging
 
 L<Mojo::Template> templates work just like Perl subs (actually they get

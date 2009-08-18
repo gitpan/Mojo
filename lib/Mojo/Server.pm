@@ -13,8 +13,7 @@ use Mojo::Loader;
 use constant RELOAD => $ENV{MOJO_RELOAD} || 0;
 
 __PACKAGE__->attr(
-    'app',
-    default => sub {
+    app => sub {
         my $self = shift;
 
         # Load
@@ -25,12 +24,10 @@ __PACKAGE__->attr(
         return $self->app_class->new;
     }
 );
-__PACKAGE__->attr('app_class',
-    default => sub { $ENV{MOJO_APP} ||= 'Mojo::HelloWorld' });
+__PACKAGE__->attr(app_class => sub { $ENV{MOJO_APP} ||= 'Mojo::HelloWorld' });
 __PACKAGE__->attr(
-    'build_tx_cb',
-    default => sub {
-        return sub {
+    build_tx_cb => sub {
+        sub {
             my $self = shift;
 
             # Reload
@@ -39,14 +36,13 @@ __PACKAGE__->attr(
                 delete $self->{app};
             }
 
-            return $self->app->build_tx;
+            return $self->app->build_tx_cb->($self->app);
           }
     }
 );
 __PACKAGE__->attr(
-    'continue_handler_cb',
-    default => sub {
-        return sub {
+    continue_handler_cb => sub {
+        sub {
             my ($self, $tx) = @_;
             if ($self->app->can('continue_handler')) {
                 $self->app->continue_handler($tx);
@@ -62,8 +58,7 @@ __PACKAGE__->attr(
     }
 );
 __PACKAGE__->attr(
-    'handler_cb',
-    default => sub {
+    handler_cb => sub {
         sub { shift->app->handler(shift) }
     }
 );
@@ -121,7 +116,7 @@ L<Mojo::Server> implements the following attributes.
     my $btx = $server->build_tx_cb;
     $server = $server->build_tx_cb(sub {
         my $self = shift;
-        return Mojo::Transaction->new;
+        return Mojo::Transaction::Single->new;
     });
 
 =head2 C<continue_handler_cb>

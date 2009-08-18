@@ -1,20 +1,20 @@
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
-package Mojo::Script::Daemon;
+package Mojo::Command::Daemon;
 
 use strict;
 use warnings;
 
-use base 'Mojo::Script';
+use base 'Mojo::Command';
 
 use Mojo::Server::Daemon;
 
 use Getopt::Long 'GetOptions';
 
-__PACKAGE__->attr('description', default => <<'EOF');
+__PACKAGE__->attr(description => <<'EOF');
 Start application with HTTP 1.1 backend.
 EOF
-__PACKAGE__->attr('usage', default => <<"EOF");
+__PACKAGE__->attr(usage => <<"EOF");
 usage: $0 daemon [OPTIONS]
 
 These options are available:
@@ -61,23 +61,23 @@ __END__
 
 =head1 NAME
 
-Mojo::Script::Daemon - Daemon Script
+Mojo::Command::Daemon - Daemon Command
 
 =head1 SYNOPSIS
 
-    use Mojo::Script::Daemon;
+    use Mojo::Command::Daemon;
 
-    my $daemon = Mojo::Script::Daemon->new;
+    my $daemon = Mojo::Command::Daemon->new;
     $daemon->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Daemon> is a script interface to
+L<Mojo::Command::Daemon> is a command interface to
 L<Mojo::Server::Daemon>.
 
 =head1 ATTRIBUTES
 
-L<Mojo::Script::Daemon> inherits all attributes from L<Mojo::Script> and
+L<Mojo::Command::Daemon> inherits all attributes from L<Mojo::Command> and
 implements the following new ones.
 
 =head2 C<description>
@@ -92,7 +92,7 @@ implements the following new ones.
 
 =head1 METHODS
 
-L<Mojo::Script::Daemon> inherits all methods from L<Mojo::Script> and
+L<Mojo::Command::Daemon> inherits all methods from L<Mojo::Command> and
 implements the following new ones.
 
 =head2 C<run>

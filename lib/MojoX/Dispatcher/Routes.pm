@@ -8,20 +8,24 @@ use warnings;
 use base 'MojoX::Routes';
 
 use Mojo::ByteStream 'b';
+use Mojo::Exception;
 use Mojo::Loader;
-use Mojo::Loader::Exception;
 
-__PACKAGE__->attr('disallow',
-    default =>
-      sub { [qw/new app attr render render_partial req res stash url_for/] });
+__PACKAGE__->attr(
+    controller_base_class => 'MojoX::Dispatcher::Routes::Controller');
+__PACKAGE__->attr(hidden => sub { [qw/new app attr render req res stash tx/] }
+);
 __PACKAGE__->attr('namespace');
+
+__PACKAGE__->attr('_hidden');
+__PACKAGE__->attr(_loaded => sub { {} });
 
 # Hey. What kind of party is this? There's no booze and only one hooker.
 sub dispatch {
     my ($self, $c) = @_;
 
     # Match
-    my $match = $self->match($c->req->method, $c->req->url->path->to_string);
+    my $match = $self->match($c->tx);
     $c->match($match);
 
     # No match
@@ -52,7 +56,7 @@ sub dispatch_callback {
     $c->app->log->debug(qq/Dispatching callback./);
 
     # Catch errors
-    local $SIG{__DIE__} = sub { die Mojo::Loader::Exception->new(shift) };
+    local $SIG{__DIE__} = sub { die Mojo::Exception->new(shift) };
 
     # Dispatch
     my $continue;
@@ -86,8 +90,7 @@ sub dispatch_controller {
     $c->app->log->debug(qq/Dispatching "${class}::$method"./);
 
     # Load class
-    $self->{_loaded} ||= {};
-    unless ($self->{_loaded}->{$class}) {
+    unless ($self->_loaded->{$class}) {
 
         # Load
         if (my $e = Mojo::Loader->load($class)) {
@@ -101,21 +104,29 @@ sub dispatch_controller {
         }
 
         # Loaded
-        $self->{_loaded}->{$class}++;
+        $self->_loaded->{$class}++;
     }
 
-    # Not a conroller
-    unless ($class->isa('MojoX::Dispatcher::Routes::Controller')) {
-        $c->app->log->debug(qq/"$class" is not a controller./);
-        return;
-    }
+    # Not a controller
+    $c->app->log->debug(qq/"$class" is not a controller./) and return
+      unless $class->isa($self->controller_base_class);
 
     # Catch errors
-    local $SIG{__DIE__} = sub { die Mojo::Loader::Exception->new(shift) };
+    local $SIG{__DIE__} = sub { die Mojo::Exception->new(shift) };
 
     # Dispatch
     my $continue;
-    eval { $continue = $class->new(ctx => $c)->$method($c) };
+    eval {
+
+        # Instantiate
+        my $new = $class->new($c);
+
+        # Call action
+        $continue = $new->$method;
+
+        # Copy stash
+        $c->stash($new->stash);
+    };
 
     # Success!
     return 1 if $continue;
@@ -167,10 +178,10 @@ sub generate_method {
     # Field
     my $field = $c->match->captures;
 
-    # Prepare disallow
-    unless ($self->{_disallow}) {
-        $self->{_disallow} = {};
-        $self->{_disallow}->{$_}++ for @{$self->disallow};
+    # Prepare hidden
+    unless ($self->_hidden) {
+        $self->_hidden({});
+        $self->_hidden->{$_}++ for @{$self->hidden};
     }
 
     my $method = $field->{method};
@@ -179,8 +190,8 @@ sub generate_method {
     # Shortcut
     return unless $method;
 
-    # Shortcut for disallowed methods
-    return if $self->{_disallow}->{$method};
+    # Shortcut for hidden methods
+    return if $self->_hidden->{$method};
     return if index($method, '_') == 0;
 
     # Invalid
@@ -188,6 +199,8 @@ sub generate_method {
 
     return $method;
 }
+
+sub hide { push @{shift->hidden}, @_ }
 
 sub render {
     my ($self, $c) = @_;
@@ -247,11 +260,18 @@ L<MojoX::Dispatcher::Routes> is a dispatcher based on L<MojoX::Routes>.
 L<MojoX::Dispatcher::Routes> inherits all attributes from L<MojoX::Routes>
 and implements the follwing the ones.
 
-=head2 C<disallow>
+=head2 C<controller_base_class>
 
-    my $disallow = $dispatcher->disallow;
-    $dispatcher  = $dispatcher->disallow(
-        [qw/new attr ctx render req res stash/]
+    my $base    = $dispatcher->controller_base_class;
+    $dispatcher = $dispatcher->controller_base_class(
+        'MojoX::Dispatcher::Routes::Controller'
+    );
+
+=head2 C<hidden>
+
+    my $hidden  = $dispatcher->hidden;
+    $dispatcher = $dispatcher->hidden(
+        [qw/new attr tx render req res stash/]
     );
 
 =head2 C<namespace>
@@ -267,7 +287,7 @@ implements the follwing the ones.
 =head2 C<dispatch>
 
     my $e = $dispatcher->dispatch(
-        MojoX::Dispatcher::Routes::Context->new
+        MojoX::Dispatcher::Routes::Controller->new
     );
 
 =head2 C<dispatch_callback>
@@ -285,6 +305,10 @@ implements the follwing the ones.
 =head2 C<generate_method>
 
     my $method = $dispatcher->genrate_method($c);
+
+=head2 C<hide>
+
+    $dispatcher = $dispatcher->hide('new');
 
 =head2 C<render>
 

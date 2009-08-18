@@ -1,27 +1,26 @@
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
-package Mojo::Script::Generate;
+package Mojo::Command::Generate;
 
 use strict;
 use warnings;
 
-use base 'Mojo::Scripts';
+use base 'Mojo::Commands';
 
-__PACKAGE__->attr('description', default => <<'EOF');
+__PACKAGE__->attr(description => <<'EOF');
 Generate files and directories from templates.
 EOF
-__PACKAGE__->attr('hint', default => <<"EOF");
+__PACKAGE__->attr(hint => <<"EOF");
 
 See '$0 generate help GENERATOR' for more information on a specific generator.
 EOF
-__PACKAGE__->attr('message', default => <<"EOF");
+__PACKAGE__->attr(message => <<"EOF");
 usage: $0 generate GENERATOR [OPTIONS]
 
 These generators are currently available:
 EOF
-__PACKAGE__->attr('namespaces',
-    default => sub { ['Mojo::Script::Generate'] });
-__PACKAGE__->attr('usage', default => <<"EOF");
+__PACKAGE__->attr(namespaces => sub { ['Mojo::Command::Generate'] });
+__PACKAGE__->attr(usage => <<"EOF");
 usage: $0 generate GENERATOR [OPTIONS]
 EOF
 
@@ -33,22 +32,22 @@ __END__
 
 =head1 NAME
 
-Mojo::Script::Generate - Generator Script
+Mojo::Command::Generate - Generator Command
 
 =head1 SYNOPSIS
 
-    use Mojo::Script::Generate;
+    use Mojo::Command::Generate;
 
-    my $generator = Mojo::Script::Generate->new;
+    my $generator = Mojo::Command::Generate->new;
     $generator->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Generate> lists available generators.
+L<Mojo::Command::Generate> lists available generators.
 
 =head1 ATTRIBUTES
 
-L<Mojo::Script::Generate> inherits all attributes from L<Mojo::Scripts> and
+L<Mojo::Command::Generate> inherits all attributes from L<Mojo::Commands> and
 implements the following new ones.
 
 =head2 C<description>
@@ -69,10 +68,10 @@ implements the following new ones.
 =head2 C<namespaces>
 
     my $namespaces = $generator->namespaces;
-    $generator     = $generator->namespaces(['Mojo::Script::Generate']);
+    $generator     = $generator->namespaces(['Mojo::Command::Generate']);
 
 =head1 METHODS
 
-L<Mojo::Script::Generate> inherits all methods from L<Mojo::Scripts>.
+L<Mojo::Command::Generate> inherits all methods from L<Mojo::Commands>.
 
 =cut

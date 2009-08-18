@@ -1,16 +1,16 @@
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
-package Mojolicious::Script::Generate::App;
+package Mojolicious::Command::Generate::App;
 
 use strict;
 use warnings;
 
-use base 'Mojo::Script';
+use base 'Mojo::Command';
 
-__PACKAGE__->attr('description', default => <<'EOF');
+__PACKAGE__->attr(description => <<'EOF');
 Generate application directory structure.
 EOF
-__PACKAGE__->attr('usage', default => <<"EOF");
+__PACKAGE__->attr(usage => <<"EOF");
 usage: $0 generate app [NAME]
 EOF
 
@@ -76,8 +76,6 @@ __DATA__
 @@ mojo
 % my $class = shift;
 #!/usr/bin/env perl
-
-# Copyright (C) 2008-2009, Sebastian Riedel.
 
 use strict;
 use warnings;
@@ -159,14 +157,14 @@ use strict;
 use warnings;
 
 use Mojo::Client;
-use Mojo::Transaction;
+use Mojo::Transaction::Single;
 use Test::More tests => 4;
 
 use_ok('<%= $class %>');
 
 # Prepare client and transaction
 my $client = Mojo::Client->new;
-my $tx     = Mojo::Transaction->new_get('/');
+my $tx     = Mojo::Transaction::Single->new_get('/');
 
 # Process request
 $client->process_app('<%= $class %>', $tx);
@@ -174,12 +172,12 @@ $client->process_app('<%= $class %>', $tx);
 # Test response
 is($tx->res->code, 200);
 is($tx->res->headers->content_type, 'text/html');
-like($tx->res->content->file->slurp, qr/Mojolicious Web Framework/i);
+like($tx->res->content->asset->slurp, qr/Mojolicious Web Framework/i);
 @@ exception
 % use Data::Dumper ();
 % my $self = shift;
 % my $s = $self->stash;
-% my $e = delete $s->{exception};
+% my $e = $self->stash('exception');
 % delete $s->{inner_template};
 <!html>
 <head><title>Exception</title></head>
@@ -189,13 +187,13 @@ like($tx->res->content->file->slurp, qr/Mojolicious Web Framework/i);
         <pre><%= $e->message %></pre>
         <pre>
 % for my $line (@{$e->lines_before}) {
-    <%= $line->[0] %>: <%== $line->[1] %>
+<%= $line->[0] %>: <%== $line->[1] %>
 % }
 % if ($e->line->[0]) {
-    <b><%= $e->line->[0] %>: <%== $e->line->[1] %></b>
+<b><%= $e->line->[0] %>: <%== $e->line->[1] %></b>
 % }
 % for my $line (@{$e->lines_after}) {
-    <%= $line->[0] %>: <%== $line->[1] %>
+<%= $line->[0] %>: <%== $line->[1] %>
 % }
         </pre>
         <pre>
@@ -204,11 +202,12 @@ like($tx->res->content->file->slurp, qr/Mojolicious Web Framework/i);
 % }
         </pre>
         <pre>
-%== Data::Dumper->new([$s])->Indent(1)->Terse(1)->Dump
+% delete $s->{exception};
+%== Data::Dumper->new([$s])->Maxdepth(2)->Indent(1)->Terse(1)->Dump
+% $s->{exception} = $e;
         </pre>
     </body>
 </html>
-% $s->{exception} = $e;
 @@ layout
 % my $self = shift;
 <!doctype html>
@@ -230,23 +229,23 @@ to move forward to a static page.
 __END__
 =head1 NAME
 
-Mojolicious::Script::Generate::App - App Generator Script
+Mojolicious::Command::Generate::App - App Generator Command
 
 =head1 SYNOPSIS
 
-    use Mojo::Script::Generate::App;
+    use Mojolicious::Command::Generate::App;
 
-    my $app = Mojo::Script::Generate::App->new;
+    my $app = Mojolicious::Command::Generate::App->new;
     $app->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Generate::App> is a application generator.
+L<Mojolicious::Command::Generate::App> is a application generator.
 
 =head1 ATTRIBUTES
 
-L<Mojolicious::Script::Generate::App> inherits all attributes from
-L<Mojo::Script> and implements the following new ones.
+L<Mojolicious::Command::Generate::App> inherits all attributes from
+L<Mojo::Command> and implements the following new ones.
 
 =head2 C<description>
 
@@ -260,8 +259,8 @@ L<Mojo::Script> and implements the following new ones.
 
 =head1 METHODS
 
-L<Mojolicious::Script::Generate::App> inherits all methods from
-L<Mojo::Script> and implements the following new ones.
+L<Mojolicious::Command::Generate::App> inherits all methods from
+L<Mojo::Command> and implements the following new ones.
 
 =head2 C<run>
 

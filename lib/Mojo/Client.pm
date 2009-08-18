@@ -9,20 +9,28 @@ use base 'Mojo::Base';
 
 use IO::Poll qw/POLLERR POLLHUP POLLIN POLLOUT/;
 use IO::Socket::INET;
-use Mojo::Pipeline;
 use Mojo::Server;
+use Mojo::Transaction::Pipeline;
 use Socket;
 
 use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
 
-__PACKAGE__->attr('continue_timeout',   default => 5);
-__PACKAGE__->attr('keep_alive_timeout', default => 15);
+__PACKAGE__->attr(continue_timeout   => 5);
+__PACKAGE__->attr(keep_alive_timeout => 15);
+
+__PACKAGE__->attr(_connections => sub { [] });
 
 sub connect {
     my ($self, $tx) = @_;
 
     # Info
-    my ($scheme, $host, $address, $port) = $tx->client_info;
+    my ($scheme, $host, $port) = $tx->client_info;
+
+    # Address
+    my $address =
+        $host =~ /\b(?:\d{1,3}\.){3}\d{1,3}\b/
+      ? $host
+      : inet_ntoa(inet_aton($host));
 
     # Try to get a cached connection
     my $connection = $self->withdraw_connection("$scheme:$host:$port");
@@ -44,7 +52,7 @@ sub connect {
 sub disconnect {
     my ($self, $tx) = @_;
 
-    my ($scheme, $host, $address, $port) = $tx->client_info;
+    my ($scheme, $host, $port) = $tx->client_info;
 
     # Deposit connection for later or kill socket
     $tx->keep_alive
@@ -60,11 +68,9 @@ sub deposit_connection {
     # Drop connections after 30 seconds from queue
     $timeout ||= $self->keep_alive_timeout;
 
-    $self->{_connections} ||= [];
-
     # Store socket if it is in a good state
     if ($self->test_connection($connection)) {
-        push @{$self->{_connections}}, [$name, $connection, time + $timeout];
+        push @{$self->_connections}, [$name, $connection, time + $timeout];
         return 1;
     }
     return;
@@ -200,7 +206,7 @@ sub spin {
         my $connection = $tx->connection;
 
         # We always try to read as suggested by RFC 2616 for HTTP 1.1 clients
-        $tx->is_writing
+        $tx->client_is_writing
           ? $poll->mask($connection, POLLIN | POLLOUT)
           : $poll->mask($connection, POLLIN);
 
@@ -288,8 +294,8 @@ sub spin_app {
         $client->client_connected;
 
         # Server accepting
-        my $server =
-          Mojo::Pipeline->new->server_accept($daemon->build_tx_cb->($daemon));
+        my $server = Mojo::Transaction::Pipeline->new->server_accept(
+            $daemon->build_tx_cb->($daemon));
 
         # Store
         $client->connection($server);
@@ -307,11 +313,15 @@ sub spin_app {
         return 1;
     }
 
+    # Make sure the server has a transaction ready to handle incoming data
+    $server->server_accept($daemon->build_tx_cb->($daemon))
+      unless $server->server_tx;
+
     # Exchange
-    if ($client->is_writing || $server->is_writing) {
+    if ($client->client_is_writing || $server->server_is_writing) {
 
         # Client writing?
-        if ($client->is_writing) {
+        if ($client->client_is_writing) {
 
             # Client grabs chunk
             my $buffer = $client->client_get_chunk || '';
@@ -328,7 +338,7 @@ sub spin_app {
         $server->server_spin;
 
         # Server writing?
-        if ($server->is_writing) {
+        if ($server->server_is_writing) {
 
             # Server grabs chunk
             my $buffer = $server->server_get_chunk || '';
@@ -364,6 +374,10 @@ sub spin_app {
     # Done
     return 1 if $client->is_finished;
 
+    # Check if server closed the connection
+    $client->error('Server closed connection.') and return 1
+      if $server->is_done && !$server->keep_alive;
+
     # More to do
     return;
 }
@@ -382,14 +396,11 @@ sub test_connection {
 sub withdraw_connection {
     my ($self, $match) = @_;
 
-    # Shortcut
-    return unless $self->{_connections};
-
     my $result;
     my @connections;
 
     # Check all connections for name, timeout and if they are still alive
-    for my $conn (@{$self->{_connections}}) {
+    for my $conn (@{$self->_connections}) {
         my ($name, $connection, $timeout) = @{$conn};
 
         # Found
@@ -402,7 +413,7 @@ sub withdraw_connection {
         else { push(@connections, $conn) if time < $timeout }
     }
 
-    $self->{_connections} = \@connections;
+    $self->_connections(\@connections);
     return $result;
 }
 
@@ -434,11 +445,7 @@ sub _socket_name {
     my ($self, $s) = @_;
 
     # Generate
-    return
-        unpack('H*', $s->sockaddr)
-      . $s->sockport
-      . unpack('H*', $s->peeraddr)
-      . $s->peerport;
+    return unpack('H*', $s->sockaddr) . $s->sockport;
 }
 
 1;
@@ -451,9 +458,9 @@ Mojo::Client - Client
 =head1 SYNOPSIS
 
     use Mojo::Client;
-    use Mojo::Transaction;
+    use Mojo::Transaction::Single;
 
-    my $tx = Mojo::Transaction->new;
+    my $tx = Mojo::Transaction::Single->new;
     $tx->req->method('GET');
     $tx->req->url->parse('http://cpan.org');
 

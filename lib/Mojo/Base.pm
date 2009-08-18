@@ -7,7 +7,6 @@ use warnings;
 
 # No imports because we get subclassed, a lot!
 require Carp;
-require Scalar::Util;
 
 # Kids, you tried your best and you failed miserably.
 # The lesson is, never try.
@@ -16,7 +15,7 @@ sub new {
 
     # Instantiate
     return bless
-      exists $_[0] ? exists $_[1] ? {@_} : $_[0] : {},
+      exists $_[0] ? exists $_[1] ? {@_} : {%{$_[0]}} : {},
       ref $class || $class;
 }
 
@@ -24,20 +23,15 @@ sub new {
 # so we optimize them by compiling our own code, don't be scared, we have
 # tests for every single case
 sub attr {
-    my $class = shift;
-    my $attrs = shift;
+    my $class   = shift;
+    my $attrs   = shift;
+    my $default = shift;
+
+    # Check for more arguments
+    Carp::croak('Attribute generator called with too many arguments') if @_;
 
     # Shortcut
     return unless $class && $attrs;
-
-    # Check arguments
-    my $args = exists $_[1] ? {@_} : ($_[0] || {});
-
-    my $chained = exists $args->{chained} ? delete $args->{chained} : 1;
-    my $default = delete $args->{default};
-    my $weak    = delete $args->{weak};
-
-    undef $args;
 
     # Check default
     Carp::croak('Default has to be a code reference or constant value')
@@ -51,21 +45,11 @@ sub attr {
     my $ws = '    ';
     for my $attr (@$attrs) {
 
-        Carp::croak("Attribute '$attr' invalid")
+        Carp::croak(qq/Attribute "$attr" invalid/)
           unless $attr =~ /^[a-zA-Z_]\w*$/;
 
         # Header
         my $code = "sub {\n";
-
-        # Warning gets optimized away
-        unless ($ENV{MOJO_BASE_OPTIMIZE}) {
-
-            # Check invocant
-            $code .= "${ws}Carp::confess(q/";
-            $code
-              .= qq/Attribute "$attr" has to be called on an object, not a class/;
-            $code .= "/)\n  ${ws}unless ref \$_[0];\n";
-        }
 
         # No value
         $code .= "${ws}if (\@_ == 1) {\n";
@@ -90,26 +74,11 @@ sub attr {
         }
         $code .= "$ws}\n";
 
+        # Store value
+        $code .= "$ws\$_[0]->{'$attr'} = \$_[1];\n";
 
-        # Store argument optimized
-        if (!$weak && !$chained) {
-            $code .= "${ws}return \$_[0]->{'$attr'} = \$_[1];\n";
-        }
-
-        # Store argument the old way
-        else {
-            $code .= "$ws\$_[0]->{'$attr'} = \$_[1];\n";
-        }
-
-        # Weaken
-        $code .= "${ws}Scalar::Util::weaken(\$_[0]->{'$attr'});\n" if $weak;
-
-        # Return value or instance for chained/weak
-        if ($chained || $weak) {
-            $code .= "${ws}return ";
-            $code .= $chained ? '$_[0]' : "\$_[0]->{'$attr'}";
-            $code .= ";\n";
-        }
+        # Return invocant
+        $code .= "${ws}return \$_[0];\n";
 
         # Footer
         $code .= '};';
@@ -141,29 +110,22 @@ Mojo::Base - Minimal Base Class For Mojo Projects
     use base 'Mojo::Base';
 
     __PACKAGE__->attr('driver');
-    __PACKAGE__->attr('doors', default => 2);
-    __PACKAGE__->attr([qw/passengers seats/],
-        chained => 0,
-        default => sub { 2 }
-    );
-    __PACKAGE__->attr('trailer', weak => 1);
+    __PACKAGE__->attr('doors' => 2);
+    __PACKAGE__->attr([qw/passengers seats/] => sub { 2 });
 
     package main;
     use Car;
 
     my $bmw = Car->new;
     print $bmw->doors;
-    print $bmw->passengers(5)->doors;
+    print $bmw->doors(5)->doors;
 
     my $mercedes = Car->new(driver => 'Sebastian');
     print $mercedes->passengers(7)->passengers;
 
-    $mercedes->trailer(Trailer->new);
-
 =head1 DESCRIPTION
 
 L<Mojo::Base> is a minimalistic base class for L<Mojo> projects.
-For debugging you can set the C<MOJO_BASE_DEBUG> environment variable.
 
 =head1 METHODS
 
@@ -177,25 +139,9 @@ For debugging you can set the C<MOJO_BASE_DEBUG> environment variable.
 
     __PACKAGE__->attr('name');
     __PACKAGE__->attr([qw/name1 name2 name3/]);
-    __PACKAGE__->attr('name', chained => 0, default => 'foo');
-    __PACKAGE__->attr(name => (chained => 0, default => 'foo'));
-    __PACKAGE__->attr('name', {chained => 0, default => 'foo'});
-    __PACKAGE__->attr([qw/name1 name2 name3/] => {
-        chained => 0,
-        default => 'foo'}
-    );
-
-Currently there are three options supported.
-
-    chained: Whenever you call an attribute with arguments the instance
-             is returned instead of the value. (This will be activated by
-             default and can be deactivated by setting chained to false)
-    default: Default value for the attribute, can be a coderef or constant
-             value. (Not a normal reference!)
-             Note that the default value is "lazy", which means it only
-             gets assigned to the instance when the attribute has been
-             called.
-    weak:    Weakens the attribute value, use to avoid memory leaks with
-             circular references.
+    __PACKAGE__->attr(name => 'foo');
+    __PACKAGE__->attr(name => sub { ... });
+    __PACKAGE__->attr([qw/name1 name2 name3/] => 'foo');
+    __PACKAGE__->attr([qw/name1 name2 name3/] => sub { ... });
 
 =cut

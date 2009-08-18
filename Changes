@@ -1,5 +1,94 @@
 This file documents the revision history for Perl extension Mojo.
 
+0.991250 2009-08-18 00:00:00
+        - This release contains many substantial changes that are not
+          backwards compatible, but good news is that it's also the last
+          major feature breaking release before 1.0. ;)
+          Older releases of Mojo did contain additional Mojo::Script::* and
+          Mojolicious::Script::* modules that are obsolete now and might
+          break this version if they are still present on your system.
+          Because of this we highly suggest that you
+          DELETE ALL MODULES IN THE "Mojo", "MojoX" AND "Mojolicious"
+          NAMESPACES MANUALLY!!!
+        - Mojo::Script has been renamed to Mojo::Command, this change is not
+          backwards compatible!
+          You will have to regenerate application scripts or replace
+          "Mojo(licious)::Script" with "Mojo(licious)::Command" manually.
+        - Removed unused features from Mojo::Base and simplified API, this
+          change is not backwards compatible!
+              __PACKAGE__->attr('foo', default => 'bar');
+          becomes
+              __PACKAGE__->attr(foo => 'bar');
+        - Merged eplite and epl, this change is not backwards compatible, you
+          will have to rename all your eplite templates to epl.
+        - Simplified MojoX::Renderer, this change is not backwards
+          compatible!
+          Handler can no longer be detected, that means "default_handler" or
+          the "handler" argument are required.
+          The template argument can no longer contain format or handler.
+              $self->render(template => 'foo.html.epl')
+          becomes
+              $self->render('foo', format => 'html', handler => 'epl')
+          The following forms are available now.
+              $self->render;
+              $self->render(controller => 'foo', action => 'bar');
+              $self->render({controller => 'foo', action => 'bar'});
+              $self->render(text => 'Hello!');
+              $self->render(template => 'index');
+              $self->render(template => 'foo/index');
+              $self->render(
+                  template => 'index',
+                  format   => 'html',
+                  handler  => 'epl'
+              );
+              $self->render(handler => 'something');
+              $self->render('foo/bar');
+              $self->render('foo/bar', format => 'html');
+              $self->render('foo/bar', {format => 'html'});
+          For renderers the stash will no longer get an updated template,
+          instead a new argument will be passed along.
+              {template => 'foo/bar', format => 'html', handler => 'epl'}
+        - Simplified context and controller in Mojolicious, this change is
+          not backwards compatible!
+          If you've been using a custom context object you'll now have to use
+          a custom controller base class.
+          The new controller_class attribute can now be used to set the
+          default controller in Mojolicious.
+          There is also no $c argument anymore actions get called with, since
+          everything is in $self now.
+        - Refactored and renamed Mojo::Transaction and Mojo::Pipeline, this
+          change is not backwards compatible!
+              Mojo::Transaction -> Mojo::Transaction::Single
+              Mojo::Pipeline -> Mojo::Transaction::Pipeline
+        - Refactored and renamed Mojo::File and Mojo::File::Memory, this
+          change is not backwards compatible!
+              Mojo::File -> Mojo::Asset::File
+              Mojo::File::Memory -> Mojo::Asset::Memory
+        - Refactored and renamed Mojo::Content, this change is not backwards
+          compatible!
+              Mojo::Content -> Mojo::Content::Single
+        - Added conditions to MojoX::Routes.
+        - Added routes script to Mojolicious.
+        - Simplified Mojo::Base.
+        - Simplified exceptions.
+        - Changed Mojo::Log to default to utf8 when writing to a file.
+        - Cleaned up Mojo::Date.
+        - Cleaned up Mojo::Transaction.
+        - Made build_tx a callback named build_tx_cb in Mojo.
+        - Made the exception template a bit more fault tolerant.
+        - Made controller base class configurable in
+          MojoX::Dispatcher::Routes.
+        - Removed address, password and user methods from Mojo::URL.
+        - Fixed Microsoft IIS CGI and FastCGI environment support.
+        - Fixed prefix handling in MojoX::Dispatcher::Static.
+        - Fixed max_age in Mojo::Cookie.
+        - Fixed cloning of urls with base in Mojo::URL.
+        - Fixed parsing of multiple headers and cookies with same name.
+        - Fixed pipeline support in Mojo::Client. (acajou)
+        - Fixed utf8 handling in Mojo::Parameters. (vti)
+        - Fixed Mojo::Scripts to only allow word characters in script names.
+        - Fixed security problem in MojoX::Dispatcher::Static. (trendels)
+
 0.991246 2009-08-01 00:00:00
         - Fixed typo.
 

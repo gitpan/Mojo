@@ -7,23 +7,19 @@ use warnings;
 
 use base 'Mojo';
 
-use Mojo::Loader;
+use Mojolicious::Commands;
+use Mojolicious::Dispatcher;
 use Mojolicious::Renderer;
-use Mojolicious::Scripts;
-use MojoX::Dispatcher::Routes;
 use MojoX::Dispatcher::Static;
 use MojoX::Types;
 use Time::HiRes ();
 
-__PACKAGE__->attr('ctx_class', default => 'Mojolicious::Context');
-__PACKAGE__->attr('mode',
-    default => sub { ($ENV{MOJO_MODE} || 'development') });
-__PACKAGE__->attr('renderer', default => sub { Mojolicious::Renderer->new });
-__PACKAGE__->attr('routes',
-    default => sub { MojoX::Dispatcher::Routes->new });
-__PACKAGE__->attr('static',
-    default => sub { MojoX::Dispatcher::Static->new });
-__PACKAGE__->attr('types', default => sub { MojoX::Types->new });
+__PACKAGE__->attr(controller_class => 'Mojolicious::Controller');
+__PACKAGE__->attr(mode => sub { ($ENV{MOJO_MODE} || 'development') });
+__PACKAGE__->attr(renderer => sub { Mojolicious::Renderer->new });
+__PACKAGE__->attr(routes   => sub { Mojolicious::Dispatcher->new });
+__PACKAGE__->attr(static   => sub { MojoX::Dispatcher::Static->new });
+__PACKAGE__->attr(types    => sub { MojoX::Types->new });
 
 # It's just like the story of the grasshopper and the octopus.
 # All year long, the grasshopper kept burying acorns for the winter,
@@ -45,6 +41,9 @@ sub new {
     $self->renderer->root($self->home->rel_dir('templates'));
     $self->static->root($self->home->rel_dir('public'));
 
+    # Hide our methods
+    $self->routes->hide(qw/render_inner render_partial render_text url_for/);
+
     # Mode
     my $mode = $self->mode;
 
@@ -61,23 +60,7 @@ sub new {
     eval { $self->startup(@_) };
     $self->log->error("Startup failed: $@") if $@;
 
-    # Load context class
-    my $class = $self->ctx_class;
-    if (my $e = Mojo::Loader->new->load($class)) {
-        $self->log->error(
-            ref $e
-            ? qq/Can't load context class "$class": $e/
-            : qq/Context class "$class" doesn't exist./
-        );
-    }
-
     return $self;
-}
-
-# The context builder
-sub build_ctx {
-    my $self = shift;
-    return $self->ctx_class->new(app => $self, tx => shift);
 }
 
 # The default dispatchers with exception handling
@@ -101,7 +84,7 @@ sub dispatch {
         if ($self->mode eq 'development') {
             $c->stash(exception => $e);
             $c->res->code(500);
-            $c->render(template => 'exception.html');
+            $c->render(template => 'exception', format => 'html');
         }
 
         # Production mode
@@ -119,8 +102,18 @@ sub handler {
     # Start timer
     my $start = [Time::HiRes::gettimeofday()];
 
-    # Build context and process
-    eval { $self->process($self->build_ctx($tx)) };
+    # Load controller class
+    my $class = $self->controller_class;
+    if (my $e = Mojo::Loader->load($class)) {
+        $self->log->error(
+            ref $e
+            ? qq/Can't load controller class "$class": $e/
+            : qq/Controller class "$class" doesn't exist./
+        );
+    }
+
+    # Build default controller and process
+    eval { $self->process($class->new(app => $self, tx => $tx)) };
     $self->log->error("Processing request failed: $@") if $@;
 
     # End timer
@@ -133,7 +126,7 @@ sub handler {
 # This will run for each request
 sub process { shift->dispatch(@_) }
 
-# Start script system
+# Start command system
 sub start {
     my $class = shift;
 
@@ -144,7 +137,7 @@ sub start {
     $ENV{MOJO_APP} ||= $class;
 
     # Start!
-    Mojolicious::Scripts->start(@_);
+    Mojolicious::Commands->start(@_);
 }
 
 # This will run once at startup
@@ -214,10 +207,6 @@ new ones.
 =head2 C<new>
 
     my $mojo = Mojolicious->new;
-
-=head2 C<build_ctx>
-
-    my $c = $mojo->build_ctx($tx);
 
 =head2 C<dispatch>
 

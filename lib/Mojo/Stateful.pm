@@ -9,18 +9,26 @@ use base 'Mojo::Base';
 
 # Don't kid yourself, Jimmy. If a cow ever got the chance,
 # he'd eat you and everyone you care about!
-__PACKAGE__->attr('state', default => 'start');
+__PACKAGE__->attr(state => 'start');
 
 sub done { shift->state('done') }
 
 sub error {
     my ($self, $message) = @_;
-    return $self->{error} unless $message;
+
+    # Get
+    if (!$message) {
+        return ($self->{error} || 'Unknown Error.') if $self->has_error;
+        return undef;
+    }
+
+    # Set
     $self->state('error');
-    return $self->{error} = $message;
+    $self->{error} = $message;
+    return $self;
 }
 
-sub has_error { defined shift->{error} }
+sub has_error { shift->state eq 'error' }
 
 sub is_done { shift->state eq 'done' }
 
@@ -51,11 +59,6 @@ L<Mojo::Stateful> is a base class for state keeping instances.
 
 L<Mojo::Stateful> implements the following attributes.
 
-=head2 C<error>
-
-    my $error = $stateful->error;
-    $stateful = $stateful->error('Parser error: test 123');
-
 =head2 C<state>
 
    my $state = $stateful->state;
@@ -69,6 +72,11 @@ following new ones.
 =head2 C<done>
 
     $stateful = $stateful->done;
+
+=head2 C<error>
+
+    my $error = $stateful->error;
+    $stateful = $stateful->error('Parser error: test 123');
 
 =head2 C<has_error>
 

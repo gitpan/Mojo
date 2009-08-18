@@ -8,7 +8,7 @@ use warnings;
 # Homer, we're going to ask you a few simple yes or no questions.
 # Do you understand?
 # Yes. *lie dectector blows up*
-use Test::More tests => 29;
+use Test::More tests => 30;
 
 use_ok('Mojo::ByteStream', 'b');
 
@@ -82,11 +82,11 @@ is($stream->md5_sum, 'ab07acbb1e496801937adfa772424bf7');
 
 # length
 $stream = b('foo bar baz');
-is($stream->length, 11);
+is($stream->size, 11);
 
 # "0"
 $stream = b('0');
-is($stream->length,    1);
+is($stream->size,      1);
 is($stream->to_string, '0');
 
 # html_escape
@@ -117,3 +117,7 @@ is("$stream", "foobar<baz>&\"\x{152}");
 $stream =
   b('/usr/local/lib/perl5/site_perl/5.10.0/Mojo/ByteStream.pm')->html_escape;
 is("$stream", '/usr/local/lib/perl5/site_perl/5.10.0/Mojo/ByteStream.pm');
+
+# xml_escape
+$stream = b(qq/la<f>\nbar"baz"'yada\n'&lt;la/)->xml_escape;
+is("$stream", "la&lt;f&gt;\nbar&quot;baz&quot;&apos;yada\n&apos;&amp;lt;la");

@@ -1,16 +1,16 @@
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
-package Mojo::Script::Generate::App;
+package Mojo::Command::Generate::App;
 
 use strict;
 use warnings;
 
-use base 'Mojo::Script';
+use base 'Mojo::Command';
 
-__PACKAGE__->attr('description', default => <<'EOF');
+__PACKAGE__->attr(description => <<'EOF');
 Generate application directory structure.
 EOF
-__PACKAGE__->attr('usage', default => <<"EOF");
+__PACKAGE__->attr(usage => <<"EOF");
 usage: $0 generate app [NAME]
 EOF
 
@@ -43,8 +43,6 @@ __DATA__
 @@ mojo
 % my $class = shift;
 #!/usr/bin/env perl
-
-# Copyright (C) 2008-2009, Sebastian Riedel.
 
 use strict;
 use warnings;
@@ -96,23 +94,23 @@ use_ok('<%= $class %>');
 __END__
 =head1 NAME
 
-Mojo::Script::Generate::App - Application Generator Script
+Mojo::Command::Generate::App - Application Generator Command
 
 =head1 SYNOPSIS
 
-    use Mojo::Script::Generate::App;
+    use Mojo::Command::Generate::App;
 
-    my $app = Mojo::Script::Generate::App->new;
+    my $app = Mojo::Command::Generate::App->new;
     $app->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Generate::App> is a application generator.
+L<Mojo::Command::Generate::App> is a application generator.
 
 =head1 ATTRIBUTES
 
-L<Mojo::Script::Generate::App> inherits all attributes from L<Mojo::Scripts>
-and implements the following new ones.
+L<Mojo::Command::Generate::App> inherits all attributes from
+L<Mojo::Command> and implements the following new ones.
 
 =head2 C<description>
 
@@ -126,8 +124,8 @@ and implements the following new ones.
 
 =head1 METHODS
 
-L<Mojo::Script::Generate::App> inherits all methods from L<Mojo::Script> and
-implements the following new ones.
+L<Mojo::Command::Generate::App> inherits all methods from L<Mojo::Command>
+and implements the following new ones.
 
 =head2 C<run>
 

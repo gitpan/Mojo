@@ -1,16 +1,16 @@
 # Copyright (C) 2008-2009, Sebastian Riedel.
 
-package Mojolicious::Script::Generate::LiteApp;
+package Mojolicious::Command::Generate::LiteApp;
 
 use strict;
 use warnings;
 
-use base 'Mojo::Script';
+use base 'Mojo::Command';
 
-__PACKAGE__->attr('description', default => <<'EOF');
+__PACKAGE__->attr(description => <<'EOF');
 Generate a minimalistic web application.
 EOF
-__PACKAGE__->attr('usage', default => <<"EOF");
+__PACKAGE__->attr(usage => <<"EOF");
 usage: $0 generate lite_app [NAME]
 EOF
 
@@ -39,18 +39,18 @@ get '/' => 'index';
 
 get '/:groovy' => sub {
     my $self = shift;
-    $self->render(text => $self->stash('groovy'));
+    $self->render_text($self->stash('groovy'));
 };
 
 shagadelic;
 <%%= '__DATA__' %%>
 
-<%%= '@@ index.html.eplite' %%>
+<%%= '@@ index.html.epl' %%>
 % my $self = shift;
 % $self->stash(layout => 'funky');
 Yea baby!
 
-<%%= '@@ layouts/funky.html.eplite' %%>
+<%%= '@@ layouts/funky.html.epl' %%>
 % my $self = shift;
 <!html>
     <head><title>Funky!</title></head>
@@ -61,23 +61,23 @@ Yea baby!
 __END__
 =head1 NAME
 
-Mojolicious::Script::Generate::LiteApp - Lite App Generator Script
+Mojolicious::Command::Generate::LiteApp - Lite App Generator Command
 
 =head1 SYNOPSIS
 
-    use Mojo::Script::Generate::LiteApp;
+    use Mojolicious::Command::Generate::LiteApp;
 
-    my $app = Mojo::Script::Generate::LiteApp->new;
+    my $app = Mojolicious::Command::Generate::LiteApp->new;
     $app->run(@ARGV);
 
 =head1 DESCRIPTION
 
-L<Mojo::Script::Generate::LiteApp> is a application generator.
+L<Mojolicious::Command::Generate::LiteApp> is a application generator.
 
 =head1 ATTRIBUTES
 
-L<Mojolicious::Script::Generate::LiteApp> inherits all attributes from
-L<Mojo::Script> and implements the following new ones.
+L<Mojolicious::Command::Generate::LiteApp> inherits all attributes from
+L<Mojo::Command> and implements the following new ones.
 
 =head2 C<description>
 
@@ -91,8 +91,8 @@ L<Mojo::Script> and implements the following new ones.
 
 =head1 METHODS
 
-L<Mojolicious::Script::Generate::LiteApp> inherits all methods from
-L<Mojo::Script> and implements the following new ones.
+L<Mojolicious::Command::Generate::LiteApp> inherits all methods from
+L<Mojo::Command> and implements the following new ones.
 
 =head2 C<run>
 

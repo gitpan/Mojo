@@ -9,15 +9,20 @@ use base 'Mojolicious::Controller';
 
 # If you're programmed to jump off a bridge, would you do it?
 # Let me check my program... Yep.
-sub badtemplate { shift->render(template => 'badtemplate.html.epl') }
+sub badtemplate { shift->render(template => 'badtemplate') }
 
-sub index { shift->stash(layout => 'default', msg => 'Hello World!') }
+sub index {
+    shift->stash(
+        layout  => 'default',
+        handler => 'xpl',
+        msg     => 'Hello World!'
+    );
+}
 
 sub something {
     my $self = shift;
     $self->res->headers->header('X-Bender', 'Kiss my shiny metal ass!');
-    $self->render(
-        text => $self->ctx->url_for('something', something => '42'));
+    $self->render_text($self->url_for('something', something => '42'));
 }
 
 sub stage1 {
@@ -27,20 +32,22 @@ sub stage1 {
     return 1 if $self->req->headers->header('X-Pass');
 
     # Fail
-    $self->render(text => 'Go away!');
+    $self->render_text('Go away!');
     return;
 }
 
-sub stage2 { shift->render(text => 'Welcome aboard!') }
+sub stage2 { shift->render_text('Welcome aboard!') }
 
-sub syntaxerror { shift->render(template => 'syntaxerror.html.epl') }
+sub syntaxerror {
+    shift->render('syntaxerror', format => 'html', handler => 'epl');
+}
 
 sub templateless { shift->render(handler => 'test') }
 
 sub test {
-    my ($self, $c) = @_;
-    $c->res->headers->header('X-Bender', 'Kiss my shiny metal ass!');
-    $c->render(text => $c->url_for(controller => 'bar'));
+    my $self = shift;
+    $self->res->headers->header('X-Bender', 'Kiss my shiny metal ass!');
+    $self->render_text($self->url_for(controller => 'bar'));
 }
 
 sub willdie { die 'for some reason' }

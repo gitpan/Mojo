@@ -28,22 +28,30 @@ sub import {
     # Initialize app
     $APP = $class->new;
 
-    # Renderer
-    $APP->renderer->default_handler('eplite');
-
     # Route generator
     my $route = sub {
-        my $methods = shift;
+        my ($methods, @args) = @_;
 
         my ($cb, $constraints, $defaults, $name, $pattern);
+        my $conditions = [];
 
         # Route information
-        for my $arg (@_) {
+        my $condition;
+        while (my $arg = shift @args) {
+
+            # Condition can be everything
+            if ($condition) {
+                push @$conditions, $condition => $arg;
+                $condition = undef;
+            }
 
             # First scalar is the pattern
-            if (!ref $arg && !$pattern) { $pattern = $arg }
+            elsif (!ref $arg && !$pattern) { $pattern = $arg }
 
-            # Second scalar is the route name
+            # Scalar
+            elsif (!ref $arg && @args) { $condition = $arg }
+
+            # Last scalar is the route name
             elsif (!ref $arg) { $name = $arg }
 
             # Callback
@@ -65,8 +73,8 @@ sub import {
         $defaults = {%$defaults, callback => $cb};
 
         # Create route
-        $APP->routes->route($pattern, {@$constraints})->via($methods)
-          ->to($defaults)->name($name);
+        $APP->routes->route($pattern, {@$constraints})->over($conditions)
+          ->via($methods)->to($defaults)->name($name);
     };
 
     # Prepare exports
@@ -109,10 +117,10 @@ Mojolicious::Lite - Micro Web Framework
     # Route with placeholder
     get '/:foo' => sub {
         my $self = shift;
-        $self->render(text => 'Yea baby!');
+        $self->render_text('Yea baby!');
     };
 
-    # Start the Mojolicious script system
+    # Start the Mojolicious command system
     shagadelic;
 
 =head1 DESCRIPTION
@@ -127,16 +135,16 @@ A minimal application looks like this.
 
     get '/' => sub {
         my $self = shift;
-        $self->render(text => 'Yea baby!');
+        $self->render_text('Yea baby!');
     };
 
     shagadelic;
 
-There is also a helper script to generate a small example application.
+There is also a helper command to generate a small example application.
 
     % mojolicious generate lite_app
 
-All the normal L<Mojolicious> script options are available from the command
+All the normal L<Mojolicious> command options are available from the command
 line.
 
     % ./myapp.pl daemon
@@ -154,7 +162,7 @@ line.
     % ./myapp.pl fastcgi
     ...Blocking FastCGI main loop...
 
-The shagadelic call that starts the L<Mojolicious> script system can be
+The shagadelic call that starts the L<Mojolicious> command system can be
 customized to override normal C<@ARGV> use.
 
     shagadelic('cgi');
@@ -165,11 +173,12 @@ placeholders.
     # /foo
     get '/foo' => sub {
         my $self = shift;
-        $self->render(text => 'Yea baby!');
+        $self->render_text('Yea baby!');
     };
 
 All routes can have a name associated with them, this allows automatic
 template detection and back referencing with C<url_for>.
+Names are always the last argument.
 
     # /
     get '/' => 'index';
@@ -177,12 +186,19 @@ template detection and back referencing with C<url_for>.
     # /foo
     get '/foo' => 'foo';
 
+    # /bar
+    get '/bar' => sub {
+        my $self = shift;
+        $self->render_text('Hi!')
+    } => 'bar';
+
     __DATA__
 
-    @@ index.html.eplite
+    @@ index.html.epl
     <a href="<%= shift->url_for('foo') %>">Foo</a>.
+    <a href="<%= shift->url_for('bar') %>">Bar</a>.
 
-    @@ foo.html.eplite
+    @@ foo.html.epl
     <a href="<%= shift->url_for('index') %>">Home</a>.
 
 Templates can have layouts.
@@ -190,15 +206,15 @@ Templates can have layouts.
     # GET /with_layout
     get '/with_layout' => sub {
         my $self = shift;
-        $self->render(template => 'with_layout', layout => 'green');
+        $self->render('with_layout', layout => 'green');
     };
 
     __DATA__
 
-    @@ with_layout.html.eplite
+    @@ with_layout.html.epl
     We've got content!
 
-    @@ layouts/green.html.eplite
+    @@ layouts/green.html.epl
     <!html>
         <head><title>Green!</title></head>
         <body><%= shift->render_inner %></body>
@@ -211,26 +227,26 @@ C<.> separator occurs, results will be stored by name in the C<stash>.
     get '/foo/:bar' => sub {
         my $self = shift;
         my $bar  = $self->stash('bar');
-        $self->render(text => "Our :bar placeholder matched $bar");
+        $self->render_text("Our :bar placeholder matched $bar");
     };
 
     # /*something/foo
     get '/(:bar)something/foo' => sub {
         my $self = shift;
         my $bar  = $self->stash('bar');
-        $self->render(text => "Our :bar placeholder matched $bar");
+        $self->render_text("Our :bar placeholder matched $bar");
     };
 
 Relaxed placeholders allow matching of everything until a C</> occurs.
 
     # GET /hello/*
     get '/hello/(.you)' => sub {
-        shift->render(template => 'groovy');
+        shift->render('groovy');
     };
 
     __DATA__
 
-    @@ groovy.html.eplite
+    @@ groovy.html.epl
     Your name is <%= shift->stash('you') %>.
 
 Wildcard placeholders allow matching absolutely everything, including
@@ -238,32 +254,32 @@ C</> and C<.>.
 
     # /hello/*
     get '/hello/(*you)' => sub {
-        shift->render(template => 'groovy');
+        shift->render('groovy');
     };
 
     __DATA__
 
-    @@ groovy.html.eplite
+    @@ groovy.html.epl
     Your name is <%= shift->stash('you') %>.
 
 Routes can be restricted to specific request methods.
 
     # GET /bye
-    get '/bye' => sub { shift->render(text => 'Bye!') };
+    get '/bye' => sub { shift->render_text('Bye!') };
 
     # POST /bye
-    post '/bye' => sub { shift->render(text => 'Bye!') };
+    post '/bye' => sub { shift->render_text('Bye!') };
 
     # GET|POST|DELETE /bye
     any [qw/get post delete/] => '/bye' => sub {
-        shift->render(text => 'Bye!');
+        shift->render_text('Bye!');
     };
 
     # /baz
     any '/baz' => sub {
         my $self   = shift;
         my $method = $self->req->method;
-        $self->render(text => "You called /baz with $method");
+        $self->render_text("You called /baz with $method");
     };
 
 All placeholders get compiled to a regex internally, with regex constraints
@@ -273,7 +289,7 @@ this process can be easily customized.
     any '/:bar' => [bar => qr/\d+/] => sub {
         my $self = shift;
         my $bar  = $self->stash('bar');
-        $self->render(text => "Our :bar placeholder matched $bar");
+        $self->render_text("Our :bar placeholder matched $bar");
     };
 
 Routes allow default values to make placeholders optional.
@@ -281,12 +297,12 @@ Routes allow default values to make placeholders optional.
     # /hello/*
     get '/hello/:name' => {name => 'Sebastian'} => sub {
         my $self = shift;
-        $self->render(template => 'groovy', format => 'txt');
+        $self->render('groovy', format => 'txt');
     };
 
     __DATA__
 
-    @@ groovy.txt.eplite
+    @@ groovy.txt.epl
     % my $self = shift;
     My name is <%= $self->stash('name') %>.
 
@@ -294,12 +310,12 @@ All those features can be easily used together.
 
     # /everything/*?name=*
     get '/everything/:stuff' => [stuff => qr/\d+/] => {stuff => 23} => sub {
-        shift->render(template => 'welcome');
+        shift->render('welcome');
     };
 
     __DATA__
 
-    @@ welcome.html.eplite
+    @@ welcome.html.epl
     % my $self = shift;
     Stuff is <%= $self->stash('stuff') %>.
     Query param name is <%= $self->req->param('name') %>.
@@ -329,7 +345,7 @@ multiple features at once.
     shagadelic;
     __DATA__
 
-    @@ index.html.eplite
+    @@ index.html.epl
     % my $self = shift;
     % $self->stash(layout => 'funky');
     Who is groovy?
@@ -338,15 +354,15 @@ multiple features at once.
         <input type="submit" value="Woosh!">
     </form>
 
-    @@ welcome.html.eplite
+    @@ welcome.html.epl
     % my $self = shift;
     <%= $self->stash('groovy') %> is groovy!
-    <%= $self->render_partial(template => 'menu') %>
+    <%= $self->render_partial('menu') %>
 
-    @@ menu.html.eplite
+    @@ menu.html.epl
     <a href="<%= shift->url_for('index') %>">Try again</a>
 
-    @@ layouts/funky.html.eplite
+    @@ layouts/funky.html.epl
     % my $self = shift;
     <!html>
         <head><title>Funky!</title></head>
@@ -355,24 +371,36 @@ multiple features at once.
         </body>
     </html>
 
+Conditions such as C<agent> allow even more powerful route constructs.
+
+    # /foo
+    get '/foo' => (agent => qr/Firefox/) => sub {
+        shift->render_text('Congratulations, you are using a cool browser!');
+    }
+
+    # /foo
+    get '/foo' => (agent => qr/Internet Explorer/) => sub {
+        shift->render_text('Dude, you really need to upgrade to Firefox!');
+    }
+
 Formats can be automatically detected by looking at file extensions.
 
     # /detection.html
     # /detection.txt
     get '/detection' => sub {
         my $self = shift;
-        $self->render(template => 'detected');
+        $self->render('detected');
     };
 
     __DATA__
 
-    @@ detected.html.eplite
+    @@ detected.html.epl
     <!html>
         <head><title>Detected!</title></head>
         <body>HTML was detected.</body>
     </html>
 
-    @@ detected.txt.eplite
+    @@ detected.txt.epl
     TXT was detected.
 
 External templates will be searched by the renderer in a C<templates>
@@ -381,7 +409,9 @@ directory.
     # /external
     any '/external' => sub {
         my $self = shift;
-        $self->render(template => 'foo/bar.html.epl');
+
+        # templates/foo/bar.html.epl
+        $self->render('foo/bar');
     };
 
 Static files will be automatically served from the C<public> directory if it
@@ -405,7 +435,7 @@ For more control the L<Mojolicious> instance can be accessed directly.
     app->log->level('error');
     app->routes->route('/foo/:bar')->via('get')->to(callback => sub {
         my $self = shift;
-        $self->render(text => 'Hello Mojo!');
+        $self->render_text('Hello Mojo!');
     });
 
 In case a lite app needs to grow, lite and real L<Mojolicous> applications
@@ -414,14 +444,12 @@ can be easily mixed to make the transition process very smooth.
     package MyApp::Foo;
     use base 'Mojolicious::Controller';
 
-    sub index {
-        shift->render(text => 'It works!');
-    }
+    sub index { shift->render_text('It works!') }
 
     package main;
     use Mojolicious::Lite;
 
-    get '/bar' => sub { shift->render(text => 'This too!') };
+    get '/bar' => sub { shift->render_text('This too!') };
 
     app->routes->namespace('MyApp');
     app->routes->route('/foo/:action')->via('get')

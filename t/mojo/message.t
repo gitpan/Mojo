@@ -5,16 +5,18 @@
 use strict;
 use warnings;
 
-use Test::More tests => 305;
+use Test::More tests => 390;
 
+use File::Spec;
+use File::Temp;
 use Mojo::Filter::Chunked;
 use Mojo::Headers;
 
 # When will I learn?
 # The answer to life's problems aren't at the bottom of a bottle,
 # they're on TV!
-use_ok('Mojo::File');
-use_ok('Mojo::Content');
+use_ok('Mojo::Asset::File');
+use_ok('Mojo::Content::Single');
 use_ok('Mojo::Content::MultiPart');
 use_ok('Mojo::Cookie::Request');
 use_ok('Mojo::Cookie::Response');
@@ -102,8 +104,8 @@ is($req->minor_version,           1);
 is($req->url,                     '/foo/bar/baz.html?foo=13#23');
 is($req->headers->content_length, 13);
 is($req->headers->content_type,   'text/plain');
-is($req->content->file->length,   13);
-is($req->content->file->slurp,    'abcdabcdefghi');
+is($req->content->asset->size,    13);
+is($req->content->asset->slurp,   'abcdabcdefghi');
 
 # Parse HTTP 1.1 "x-application-urlencoded"
 $req = Mojo::Message::Request->new;
@@ -117,8 +119,8 @@ is($req->major_version,         1);
 is($req->minor_version,         1);
 is($req->url,                   '/foo/bar/baz.html?foo=13#23');
 is($req->headers->content_type, 'x-application-urlencoded');
-is($req->content->file->length, 26);
-is($req->content->file->slurp,  'foo=bar& tset=23+;&foo=bar');
+is($req->content->asset->size,  26);
+is($req->content->asset->slurp, 'foo=bar& tset=23+;&foo=bar');
 is($req->body_params,           'foo=bar&+tset=23+&foo=bar');
 is_deeply($req->body_params->to_hash->{foo}, [qw/bar bar/]);
 is_deeply($req->body_params->to_hash->{' tset'}, '23 ');
@@ -136,8 +138,8 @@ is($req->major_version,         1);
 is($req->minor_version,         1);
 is($req->url,                   '/foo/bar/baz.html?foo=13#23');
 is($req->headers->content_type, 'application/x-www-form-urlencoded');
-is($req->content->file->length, 26);
-is($req->content->file->slurp,  'foo=bar&+tset=23+;&foo=bar');
+is($req->content->asset->size,  26);
+is($req->content->asset->slurp, 'foo=bar&+tset=23+;&foo=bar');
 is($req->body_params,           'foo=bar&+tset=23+&foo=bar');
 is_deeply($req->body_params->to_hash->{foo}, [qw/bar bar/]);
 is_deeply($req->body_params->to_hash->{' tset'}, '23 ');
@@ -174,8 +176,8 @@ is($req->headers->content_type,         'text/plain');
 is($req->headers->header('X-Trailer1'), 'test');
 is($req->headers->header('X-Trailer2'), '123');
 is($req->headers->content_length,       13);
-is($req->content->file->length,         13);
-is($req->content->file->slurp,          'abcdabcdefghi');
+is($req->content->asset->size,          13);
+is($req->content->asset->slurp,         'abcdabcdefghi');
 
 # Parse HTTP 1.1 chunked request with trailing headers (different variation)
 $req = Mojo::Message::Request->new;
@@ -198,8 +200,8 @@ ok(!defined $req->headers->transfer_encoding);
 is($req->headers->content_type,        'text/plain');
 is($req->headers->header('X-Trailer'), '777');
 is($req->headers->content_length,      13);
-is($req->content->file->length,        13);
-is($req->content->file->slurp,         'abcdabcdefghi');
+is($req->content->asset->size,         13);
+is($req->content->asset->slurp,        'abcdabcdefghi');
 
 # Parse HTTP 1.1 chunked request with trailing headers (different variation)
 $req = Mojo::Message::Request->new;
@@ -223,8 +225,8 @@ is($req->headers->content_type,         'text/plain');
 is($req->headers->header('X-Trailer1'), 'test');
 is($req->headers->header('X-Trailer2'), '123');
 is($req->headers->content_length,       13);
-is($req->content->file->length,         13);
-is($req->content->file->slurp,          'abcdabcdefghi');
+is($req->content->asset->size,          13);
+is($req->content->asset->slurp,         'abcdabcdefghi');
 
 # Parse HTTP 1.1 chunked request with trailing headers (no Trailer header)
 $req = Mojo::Message::Request->new;
@@ -247,8 +249,8 @@ is($req->headers->content_type,         'text/plain');
 is($req->headers->header('X-Trailer1'), 'test');
 is($req->headers->header('X-Trailer2'), '123');
 is($req->headers->content_length,       13);
-is($req->content->file->length,         13);
-is($req->content->file->slurp,          'abcdabcdefghi');
+is($req->content->asset->size,          13);
+is($req->content->asset->slurp,         'abcdabcdefghi');
 
 # Parse HTTP 1.1 multipart request
 $req = Mojo::Message::Request->new;
@@ -277,17 +279,19 @@ is($req->minor_version, 1);
 is($req->url,           '/foo/bar/baz.html?foo13#23');
 is($req->query_params,  'foo13');
 like($req->headers->content_type, qr/multipart\/form-data/);
-is(ref $req->content->parts->[0],          'Mojo::Content');
-is(ref $req->content->parts->[1],          'Mojo::Content');
-is(ref $req->content->parts->[2],          'Mojo::Content');
-is($req->content->parts->[0]->file->slurp, "hallo welt test123\n");
+is(ref $req->content->parts->[0],           'Mojo::Content::Single');
+is(ref $req->content->parts->[1],           'Mojo::Content::Single');
+is(ref $req->content->parts->[2],           'Mojo::Content::Single');
+is($req->content->parts->[0]->asset->slurp, "hallo welt test123\n");
 is_deeply($req->body_params->to_hash->{text1}, "hallo welt test123\n");
 is_deeply($req->body_params->to_hash->{text2}, '');
-is($req->upload('upload')->filename,     'hello.pl');
-is(ref $req->upload('upload')->file,     'Mojo::File');
-is($req->upload('upload')->file->length, 69);
-ok($req->upload('upload')->copy_to('MOJO_TMP.txt'));
-is((unlink 'MOJO_TMP.txt'), 1);
+is($req->upload('upload')->filename,    'hello.pl');
+is(ref $req->upload('upload')->asset,   'Mojo::Asset::File');
+is($req->upload('upload')->asset->size, 69);
+my $file =
+  File::Spec->catfile(File::Temp::tempdir(), ("MOJO_TMP." . time . ".txt"));
+ok($req->upload('upload')->move_to($file));
+is((unlink $file), 1);
 
 # Build minimal HTTP 1.1 request
 $req = Mojo::Message::Request->new;
@@ -342,10 +346,10 @@ $req->method('GET');
 $req->url->parse('http://127.0.0.1/foo/bar');
 $req->content(Mojo::Content::MultiPart->new);
 $req->headers->content_type('multipart/mixed; boundary=7am1X');
-push @{$req->content->parts}, Mojo::Content->new;
-$req->content->parts->[-1]->file->add_chunk('Hallo Welt lalalala!');
-my $content = Mojo::Content->new;
-$content->file->add_chunk("lala\nfoobar\nperl rocks\n");
+push @{$req->content->parts}, Mojo::Content::Single->new;
+$req->content->parts->[-1]->asset->add_chunk('Hallo Welt lalalala!');
+my $content = Mojo::Content::Single->new;
+$content->asset->add_chunk("lala\nfoobar\nperl rocks\n");
 $content->headers->content_type('text/plain');
 push @{$req->content->parts}, $content;
 is($req->build,
@@ -498,7 +502,7 @@ is($res->major_version,           1);
 is($res->minor_version,           1);
 is($res->headers->content_type,   'text/plain');
 is($res->headers->content_length, 13);
-is($res->content->body_length,    13);
+is($res->content->body_size,      13);
 
 # Parse HTTP 1.1 multipart response
 $res = Mojo::Message::Response->new;
@@ -526,10 +530,10 @@ is($res->message,       'OK');
 is($res->major_version, 1);
 is($res->minor_version, 1);
 ok($res->headers->content_type =~ /multipart\/form-data/);
-is(ref $res->content->parts->[0],          'Mojo::Content');
-is(ref $res->content->parts->[1],          'Mojo::Content');
-is(ref $res->content->parts->[2],          'Mojo::Content');
-is($res->content->parts->[0]->file->slurp, "hallo welt test123\n");
+is(ref $res->content->parts->[0],           'Mojo::Content::Single');
+is(ref $res->content->parts->[1],           'Mojo::Content::Single');
+is(ref $res->content->parts->[2],           'Mojo::Content::Single');
+is($res->content->parts->[0]->asset->slurp, "hallo welt test123\n");
 
 # Build HTTP 1.1 response start line with minimal headers
 $res = Mojo::Message::Response->new;
@@ -577,10 +581,11 @@ $res->content(Mojo::Content::MultiPart->new);
 $res->code(200);
 $res->headers->content_type('multipart/mixed; boundary=7am1X');
 $res->headers->date('Sun, 17 Aug 2008 16:27:35 GMT');
-push @{$res->content->parts}, Mojo::Content->new(file => Mojo::File->new);
-$res->content->parts->[-1]->file->add_chunk('Hallo Welt lalalalalala!');
-$content = Mojo::Content->new;
-$content->file->add_chunk("lala\nfoobar\nperl rocks\n");
+push @{$res->content->parts},
+  Mojo::Content::Single->new(asset => Mojo::Asset::File->new);
+$res->content->parts->[-1]->asset->add_chunk('Hallo Welt lalalalalala!');
+$content = Mojo::Content::Single->new;
+$content->asset->add_chunk("lala\nfoobar\nperl rocks\n");
 $content->headers->content_type('text/plain');
 push @{$res->content->parts}, $content;
 is($res->build,
@@ -594,6 +599,131 @@ is($res->build,
       . "Content-Type: text/plain\x0d\x0a\x0d\x0a"
       . "lala\nfoobar\nperl rocks\n"
       . "\x0d\x0a--7am1X--");
+
+# Parse IIS 6.0 like CGI environment variables and a body
+$req = Mojo::Message::Request->new;
+$req->parse(
+    CONTENT_LENGTH  => 11,
+    HTTP_EXPECT     => '100-continue',
+    CONTENT_TYPE    => 'application/x-www-form-urlencoded',
+    PATH_INFO       => '/foo/bar',
+    PATH_TRANSLATED => 'C:\\FOO\\myapp\\bar',
+    SERVER_SOFTWARE => 'Microsoft-IIS/6.0',
+    QUERY_STRING    => 'lalala=23&bar=baz',
+    REQUEST_METHOD  => 'POST',
+    SCRIPT_NAME     => '/foo/bar',
+    HTTP_HOST       => 'localhost:8080',
+    SERVER_PROTOCOL => 'HTTP/1.0'
+);
+$req->parse('hello=world');
+is($req->state,           'done');
+is($req->method,          'POST');
+is($req->headers->expect, '100-continue');
+is($req->url->path,       '/bar');
+is($req->url->base->path, '/foo/');
+is($req->url->host,       'localhost');
+is($req->url->port,       8080);
+is($req->url->query,      'lalala=23&bar=baz');
+is($req->minor_version,   '0');
+is($req->major_version,   '1');
+is($req->body,            'hello=world');
+is_deeply($req->param('hello'), 'world');
+is($req->url->to_abs->to_string,
+    'http://localhost:8080/foo/bar?lalala=23&bar=baz');
+
+# Parse IIS 6.0 like CGI environment variables and a body (root)
+$req = Mojo::Message::Request->new;
+$req->parse(
+    CONTENT_LENGTH  => 11,
+    HTTP_EXPECT     => '100-continue',
+    CONTENT_TYPE    => 'application/x-www-form-urlencoded',
+    PATH_INFO       => '/foo/bar',
+    PATH_TRANSLATED => 'C:\\FOO\\myapp\\foo\\bar',
+    SERVER_SOFTWARE => 'Microsoft-IIS/6.0',
+    QUERY_STRING    => 'lalala=23&bar=baz',
+    REQUEST_METHOD  => 'POST',
+    SCRIPT_NAME     => '/foo/bar',
+    HTTP_HOST       => 'localhost:8080',
+    SERVER_PROTOCOL => 'HTTP/1.0'
+);
+$req->parse('hello=world');
+is($req->state,           'done');
+is($req->method,          'POST');
+is($req->headers->expect, '100-continue');
+is($req->url->path,       '/foo/bar');
+is($req->url->base->path, '/');
+is($req->url->host,       'localhost');
+is($req->url->port,       8080);
+is($req->url->query,      'lalala=23&bar=baz');
+is($req->minor_version,   '0');
+is($req->major_version,   '1');
+is($req->body,            'hello=world');
+is_deeply($req->param('hello'), 'world');
+is($req->url->to_abs->to_string,
+    'http://localhost:8080/foo/bar?lalala=23&bar=baz');
+
+# Parse IIS 6.0 like CGI environment variables and a body (trailing slash)
+$req = Mojo::Message::Request->new;
+$req->parse(
+    CONTENT_LENGTH  => 11,
+    HTTP_EXPECT     => '100-continue',
+    CONTENT_TYPE    => 'application/x-www-form-urlencoded',
+    PATH_INFO       => '/foo/bar/',
+    PATH_TRANSLATED => 'C:\\FOO\\myapp\\foo\\bar\\',
+    SERVER_SOFTWARE => 'Microsoft-IIS/6.0',
+    QUERY_STRING    => 'lalala=23&bar=baz',
+    REQUEST_METHOD  => 'POST',
+    SCRIPT_NAME     => '/foo/bar/',
+    HTTP_HOST       => 'localhost:8080',
+    SERVER_PROTOCOL => 'HTTP/1.0'
+);
+$req->parse('hello=world');
+is($req->state,           'done');
+is($req->method,          'POST');
+is($req->headers->expect, '100-continue');
+is($req->url->path,       '/foo/bar/');
+is($req->url->base->path, '/');
+is($req->url->host,       'localhost');
+is($req->url->port,       8080);
+is($req->url->query,      'lalala=23&bar=baz');
+is($req->minor_version,   '0');
+is($req->major_version,   '1');
+is($req->body,            'hello=world');
+is_deeply($req->param('hello'), 'world');
+is($req->url->to_abs->to_string,
+    'http://localhost:8080/foo/bar/?lalala=23&bar=baz');
+
+# Parse IIS 6.0 like CGI environment variables and a body
+# (root and trailing slash)
+$req = Mojo::Message::Request->new;
+$req->parse(
+    CONTENT_LENGTH  => 11,
+    HTTP_EXPECT     => '100-continue',
+    CONTENT_TYPE    => 'application/x-www-form-urlencoded',
+    PATH_INFO       => '/foo/bar/',
+    PATH_TRANSLATED => 'C:\\FOO\\myapp\\',
+    SERVER_SOFTWARE => 'Microsoft-IIS/6.0',
+    QUERY_STRING    => 'lalala=23&bar=baz',
+    REQUEST_METHOD  => 'POST',
+    SCRIPT_NAME     => '/foo/bar/',
+    HTTP_HOST       => 'localhost:8080',
+    SERVER_PROTOCOL => 'HTTP/1.0'
+);
+$req->parse('hello=world');
+is($req->state,           'done');
+is($req->method,          'POST');
+is($req->headers->expect, '100-continue');
+is($req->url->path,       '/');
+is($req->url->base->path, '/foo/bar/');
+is($req->url->host,       'localhost');
+is($req->url->port,       8080);
+is($req->url->query,      'lalala=23&bar=baz');
+is($req->minor_version,   '0');
+is($req->major_version,   '1');
+is($req->body,            'hello=world');
+is_deeply($req->param('hello'), 'world');
+is($req->url->to_abs->to_string,
+    'http://localhost:8080/foo/bar/?lalala=23&bar=baz');
 
 # Parse Lighttpd like CGI environment variables and a body
 $req = Mojo::Message::Request->new;
@@ -663,13 +793,42 @@ $req->parse(
     HTTP_HOST       => 'localhost',
     SERVER_PROTOCOL => 'HTTP/1.0'
 );
-is($req->method,                 'GET');
-is($req->url->host,              'localhost');
-is($req->url->path,              '/foo/bar');
-is($req->url->base->path,        '/test/index.cgi/');
-is($req->minor_version,          '0');
-is($req->major_version,          '1');
+$req->parse('hello=world');
+is($req->state,           'done');
+is($req->method,          'GET');
+is($req->url->host,       'localhost');
+is($req->url->path,       '/foo/bar');
+is($req->url->base->path, '/test/index.cgi/');
+is($req->minor_version,   '0');
+is($req->major_version,   '1');
+is($req->body,            'hello=world');
+is_deeply($req->param('hello'), 'world');
 is($req->url->to_abs->to_string, 'http://localhost/test/index.cgi/foo/bar');
+
+# Parse Apache 2.2.11 like CGI environment variables and a body
+# (trailing slash)
+$req = Mojo::Message::Request->new;
+$req->parse(
+    CONTENT_LENGTH  => 11,
+    CONTENT_TYPE    => 'application/x-www-form-urlencoded',
+    PATH_INFO       => '/foo/bar/',
+    QUERY_STRING    => '',
+    REQUEST_METHOD  => 'GET',
+    SCRIPT_NAME     => '/test/index.cgi',
+    HTTP_HOST       => 'localhost',
+    SERVER_PROTOCOL => 'HTTP/1.0'
+);
+$req->parse('hello=world');
+is($req->state,           'done');
+is($req->method,          'GET');
+is($req->url->host,       'localhost');
+is($req->url->path,       '/foo/bar/');
+is($req->url->base->path, '/test/index.cgi/');
+is($req->minor_version,   '0');
+is($req->major_version,   '1');
+is($req->body,            'hello=world');
+is_deeply($req->param('hello'), 'world');
+is($req->url->to_abs->to_string, 'http://localhost/test/index.cgi/foo/bar/');
 
 # Parse Apache 2.2.11 like CGI environment variables and a body
 # (no SCRIPT_NAME)
@@ -683,12 +842,16 @@ $req->parse(
     HTTP_HOST       => 'localhost',
     SERVER_PROTOCOL => 'HTTP/1.0'
 );
-is($req->method,                 'GET');
-is($req->url->host,              'localhost');
-is($req->url->path,              '/foo/bar');
-is($req->url->base->path,        '');
-is($req->minor_version,          '0');
-is($req->major_version,          '1');
+$req->parse('hello=world');
+is($req->state,           'done');
+is($req->method,          'GET');
+is($req->url->host,       'localhost');
+is($req->url->path,       '/foo/bar');
+is($req->url->base->path, '');
+is($req->minor_version,   '0');
+is($req->major_version,   '1');
+is($req->body,            'hello=world');
+is_deeply($req->param('hello'), 'world');
 is($req->url->to_abs->to_string, 'http://localhost/foo/bar');
 
 # Parse Apache 2.2.11 like CGI environment variables and a body
@@ -703,12 +866,16 @@ $req->parse(
     HTTP_HOST       => 'localhost',
     SERVER_PROTOCOL => 'HTTP/1.0'
 );
-is($req->method,                 'GET');
-is($req->url->host,              'localhost');
-is($req->url->path,              '');
-is($req->url->base->path,        '/test/index.cgi/');
-is($req->minor_version,          '0');
-is($req->major_version,          '1');
+$req->parse('hello=world');
+is($req->state,           'done');
+is($req->method,          'GET');
+is($req->url->host,       'localhost');
+is($req->url->path,       '');
+is($req->url->base->path, '/test/index.cgi/');
+is($req->minor_version,   '0');
+is($req->major_version,   '1');
+is($req->body,            'hello=world');
+is_deeply($req->param('hello'), 'world');
 is($req->url->to_abs->to_string, 'http://localhost/test/index.cgi');
 
 # Parse response with cookie
@@ -734,7 +901,7 @@ is($cookies->[0]->path,        '/test');
 is($res->cookie('foo')->value, 'bar');
 is($res->cookie('foo')->path,  '/test');
 
-# Build HTTP 1.1 response with 2 cookies
+# Build and parse HTTP 1.1 response with 3 cookies
 $res = Mojo::Message::Response->new;
 $res->code(404);
 $res->headers->date('Sun, 17 Aug 2008 16:27:35 GMT');
@@ -750,12 +917,36 @@ $res->cookies(
         path  => '/test/23'
     )
 );
+$res->headers->set_cookie2(
+    Mojo::Cookie::Response->new(
+        name  => 'baz',
+        value => 'yada',
+        path  => '/foobar'
+    )
+);
 is($res->build,
         "HTTP/1.1 404 Not Found\x0d\x0a"
       . "Date: Sun, 17 Aug 2008 16:27:35 GMT\x0d\x0a"
       . "Content-Length: 0\x0d\x0a"
       . "Set-Cookie: foo=bar; Version=1; Path=/foobar\x0d\x0a"
-      . "Set-Cookie: bar=baz; Version=1; Path=/test/23\x0d\x0a\x0d\x0a");
+      . "Set-Cookie: bar=baz; Version=1; Path=/test/23\x0d\x0a"
+      . "Set-Cookie2: baz=yada; Version=1; Path=/foobar\x0d\x0a\x0d\x0a");
+my $res2 = Mojo::Message::Response->new;
+$res2->parse($res->build);
+is($res2->state,                   'done');
+is($res2->code,                    404);
+is($res2->major_version,           1);
+is($res2->minor_version,           1);
+is($res2->headers->content_length, 0);
+is(defined $res2->cookie('foo'),   1);
+is(defined $res2->cookie('baz'),   1);
+is(defined $res2->cookie('bar'),   1);
+is($res2->cookie('foo')->path,     '/foobar');
+is($res2->cookie('foo')->value,    'bar');
+is($res2->cookie('baz')->path,     '/foobar');
+is($res2->cookie('baz')->value,    'yada');
+is($res2->cookie('bar')->path,     '/test/23');
+is($res2->cookie('bar')->value,    'baz');
 
 # Build full HTTP 1.1 request with cookies
 $req = Mojo::Message::Request->new;

@@ -8,9 +8,9 @@ use warnings;
 use base 'Mojo::Base';
 
 __PACKAGE__->attr(
-    'types',
-    default => sub {
+    types => sub {
         return {
+            atom => 'application/atom+xml',
             css  => 'text/css',
             gif  => 'image/gif',
             gz   => 'application/gzip',
@@ -22,6 +22,7 @@ __PACKAGE__->attr(
             js   => 'application/x-javascript',
             json => 'application/json',
             png  => 'image/png',
+            rss  => 'application/rss+xml',
             tar  => 'application/x-tar',
             txt  => 'text/plain',
             xml  => 'text/xml',

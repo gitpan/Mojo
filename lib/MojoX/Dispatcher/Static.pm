@@ -9,27 +9,34 @@ use base 'Mojo::Base';
 
 use File::stat;
 use File::Spec;
-use Mojo::Content;
-use Mojo::File;
+use Mojo::Asset::File;
+use Mojo::Content::Single;
+use Mojo::Path;
 use MojoX::Types;
 
 __PACKAGE__->attr([qw/prefix root/]);
-__PACKAGE__->attr('types', default => sub { MojoX::Types->new });
+__PACKAGE__->attr(types => sub { MojoX::Types->new });
 
 # Valentine's Day's coming? Aw crap! I forgot to get a girlfriend again!
 sub dispatch {
     my ($self, $c) = @_;
 
+    # Canonical path
+    my $path = $c->req->url->path->clone->canonicalize->to_string;
+
     # Prefix
     if (my $prefix = $self->prefix) {
-        return 1 unless $c->req->url->path =~ /^$prefix.*/;
+        return 1 unless $path =~ s/^$prefix//;
     }
 
-    # Path
-    my @parts = @{$c->req->url->path->clone->canonicalize->parts};
+    # Parts
+    my @parts = @{Mojo::Path->parse($path)->parts};
 
     # Shortcut
     return 1 unless @parts;
+
+    # Prevent directory traversal
+    return 1 if $parts[0] eq '..';
 
     # Serve static file
     return $self->serve($c, File::Spec->catfile(@parts));
@@ -77,8 +84,8 @@ sub serve {
             }
 
             $res->content(
-                Mojo::Content->new(
-                    file    => Mojo::File->new,
+                Mojo::Content::Single->new(
+                    asset   => Mojo::Asset::File->new,
                     headers => $res->headers
                 )
             );
@@ -89,7 +96,7 @@ sub serve {
                 Mojo::Date->new($stat->mtime));
 
             $res->headers->content_type($type);
-            $res->content->file->path($path);
+            $res->content->asset->path($path);
 
             return;
         }
@@ -136,8 +143,9 @@ sub serve_error {
         $c->app->log->debug(qq/Serving error file "$rel"./);
 
         # File
-        $res->content(Mojo::Content->new(file => Mojo::File->new));
-        $res->content->file->path($path);
+        $res->content(
+            Mojo::Content::Single->new(asset => Mojo::Asset::File->new));
+        $res->content->asset->path($path);
 
         # Extension
         $path =~ /\.(\w+)$/;

@@ -8,7 +8,10 @@ use warnings;
 use base 'MojoX::Renderer';
 
 use File::Spec;
+use Mojo::Command;
 use Mojo::Template;
+
+__PACKAGE__->attr(_epl_cache => sub { {} });
 
 # What do you want?
 # I'm here to kick your ass!
@@ -19,25 +22,14 @@ sub new {
     # Epl
     $self->add_handler(
         epl => sub {
-            my ($r, $c, $output) = @_;
+            my ($r, $c, $output, $options) = @_;
 
             # Template
-            my $template = $c->stash->{template};
-            my $path =
-              File::Spec->catfile($c->app->renderer->root, $template);
-
-            # Initialize cache
-            $r->{_mt_cache} ||= {};
-
-            # Shortcut
-            unless (-r $path || $r->{_mt_cache}->{$path}) {
-                $c->app->log->error(
-                    qq/Template "$template" missing or not readable./);
-                return;
-            }
+            my $t    = $r->template_name($options);
+            my $path = $r->template_path($options);
 
             # Check cache
-            my $mt = $r->{_mt_cache}->{$path};
+            my $mt = $r->_epl_cache->{$path};
 
             # Interpret again
             if ($mt) { $$output = $mt->interpret($c) }
@@ -46,8 +38,32 @@ sub new {
             else {
 
                 # Initialize
-                $mt = $r->{_mt_cache}->{$path} = Mojo::Template->new;
-                $$output = $mt->render_file($path, $c);
+                $mt = Mojo::Template->new;
+
+                # Class
+                my $class =
+                     $c->stash->{template_class}
+                  || $ENV{MOJO_TEMPLATE_CLASS}
+                  || 'main';
+
+                # Try template
+                if (-r $path) { $$output = $mt->render_file($path, $c) }
+
+                # Try DATA section
+                elsif (my $d = Mojo::Command->new->get_data($t, $class)) {
+                    $mt->namespace($class);
+                    $$output = $mt->render($d, $c);
+                }
+
+                # No template
+                else {
+                    $c->app->log->error(
+                        qq/Template "$t" missing or not readable./)
+                      and return;
+                }
+
+                # Cache
+                $r->_epl_cache->{$path} = $mt;
             }
 
             # Exception
@@ -56,7 +72,7 @@ sub new {
                 $$output = '';
 
                 # Log
-                $c->app->log->error(qq/Template error in "$template": $e/);
+                $c->app->log->error(qq/Template error in "$t": $e/);
 
                 # Development mode
                 if ($c->app->mode eq 'development') {
@@ -70,7 +86,8 @@ sub new {
                     $c->res->body(
                         $c->render(
                             partial  => 1,
-                            template => 'exception.html'
+                            template => 'exception',
+                            format   => 'html'
                         )
                     );
 
@@ -80,54 +97,6 @@ sub new {
 
             # Success or exception?
             return ref $$output ? 0 : 1;
-        }
-    );
-
-    # Eplite
-    $self->add_handler(
-        eplite => sub {
-            my ($r, $c, $output) = @_;
-
-            # Template
-            my $template = $c->stash->{template};
-
-            # Class
-            my $class =
-                 delete $c->stash->{eplite_class}
-              || $ENV{MOJO_EPLITE_CLASS}
-              || 'main';
-
-            # Path
-            my $path =
-              File::Spec->catfile($c->app->renderer->root, $template);
-
-            # Prepare
-            unless ($r->{_mt_cache}->{$path}) {
-
-                # Portable templates
-                $template = join '/', File::Spec->splitdir($template);
-
-                # Data
-                my $d = Mojo::Script->new->get_data($template, $class);
-                unless ($d) {
-
-                    # Nothing found
-                    $c->app->log->debug(
-                        qq/Template "$template" not found in class "$class"./
-                    );
-                    return;
-                }
-
-                # Template
-                my $t = Mojo::Template->new;
-                $t->namespace($class);
-                $t->parse($d);
-                $t->build;
-                $r->{_mt_cache}->{$path} = $t;
-            }
-
-            # Render
-            return $r->handler->{epl}->($r, $c, $output);
         }
     );
 

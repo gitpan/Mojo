@@ -12,12 +12,12 @@ use base 'MojoX::Dispatcher::Routes::Controller';
 sub bar  {1}
 sub home {1}
 
-package Test::Context;
+package Test::Controller;
 
 use strict;
 use warnings;
 
-use base 'MojoX::Dispatcher::Routes::Context';
+use base 'MojoX::Dispatcher::Routes::Controller';
 
 __PACKAGE__->attr('render_called');
 
@@ -40,10 +40,10 @@ use warnings;
 use Test::More tests => 10;
 
 use Mojo;
-use Mojo::Transaction;
+use Mojo::Transaction::Single;
 use MojoX::Dispatcher::Routes;
 
-my $c = Test::Context->new(app => Mojo->new);
+my $c = Test::Controller->new(app => Mojo->new);
 
 # Silence
 $c->app->log->path(undef);
@@ -58,14 +58,14 @@ $d->route('/foo/(capture)')->to(controller => 'foo', action => 'bar');
 
 # 404 clean stash
 $c->reset_state;
-$c->tx(Mojo::Transaction->new_post('/not_found'));
+$c->tx(Mojo::Transaction::Single->new_post('/not_found'));
 is($d->dispatch($c), 1);
 is_deeply($c->stash, {});
 ok(!$c->render_called);
 
 # No escaping
 $c->reset_state;
-$c->tx(Mojo::Transaction->new_post('/foo/hello'));
+$c->tx(Mojo::Transaction::Single->new_post('/foo/hello'));
 is($d->dispatch($c), undef);
 is_deeply($c->stash,
     {controller => 'foo', action => 'bar', capture => 'hello'});
@@ -73,7 +73,7 @@ ok($c->render_called);
 
 # Escaping
 $c->reset_state;
-$c->tx(Mojo::Transaction->new_post('/foo/hello%20there'));
+$c->tx(Mojo::Transaction::Single->new_post('/foo/hello%20there'));
 is($d->dispatch($c), undef);
 is_deeply($c->stash,
     {controller => 'foo', action => 'bar', capture => 'hello there'});

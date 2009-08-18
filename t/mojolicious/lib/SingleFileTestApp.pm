@@ -29,20 +29,17 @@ use base 'Mojolicious::Controller';
 sub bar {
     my $self = shift;
     $self->res->headers->header('X-Bender', 'Kiss my shiny metal ass!');
-    $self->render(text => $self->ctx->url_for);
+    $self->render_text($self->url_for);
 }
 
-sub eplite_template {
-    shift->render(
-        template     => 'index.html.eplite',
-        eplite_class => 'SingleFileTestApp::Foo'
-    );
+sub data_template {
+    shift->render('index', template_class => 'SingleFileTestApp::Foo');
 }
 
-sub eplite_template2 {
+sub data_template2 {
     shift->stash(
-        template     => 'too.html.eplite',
-        eplite_class => 'SingleFileTestApp::Foo'
+        template       => 'too',
+        template_class => 'SingleFileTestApp::Foo'
     );
 }
 
@@ -50,7 +47,7 @@ sub index { shift->stash(template => 'withlayout', msg => 'works great!') }
 
 1;
 __DATA__
-@@ index.html.eplite
+@@ index.html.epl
 <%= 20 + 3 %> works!
-@@ too.html.eplite
+@@ too.html.epl
 This one works too!

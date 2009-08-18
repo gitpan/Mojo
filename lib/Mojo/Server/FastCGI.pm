@@ -13,6 +13,8 @@ use IO::Socket;
 
 use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
 
+__PACKAGE__->attr('_listen');
+
 # Roles
 my @ROLES = qw/RESPONDER  AUTHORIZER FILTER/;
 my %ROLE_NUMBERS;
@@ -54,7 +56,7 @@ sub accept_connection {
     my $self = shift;
 
     # Listen socket?
-    unless ($self->{_listen}) {
+    unless ($self->_listen) {
         my $listen = IO::Socket->new;
 
         # Open
@@ -63,7 +65,7 @@ sub accept_connection {
             return;
         }
 
-        $self->{_listen} = $listen;
+        $self->_listen($listen);
     }
 
     # Debug
@@ -71,7 +73,7 @@ sub accept_connection {
 
     # Accept
     my $connection;
-    unless ($connection = $self->{_listen}->accept) {
+    unless ($connection = $self->_listen->accept) {
         $self->app->log->error("Can't accept FastCGI connection: $!");
         return;
     }
@@ -138,6 +140,7 @@ sub read_request {
 
     # Slurp
     my $parambuffer = '';
+    my $env         = {};
     while (($type, $id, $body) = $self->read_record($connection)) {
 
         # Wrong id
@@ -163,7 +166,12 @@ sub read_request {
                 my $name  = substr $parambuffer, 0, $nlen, '';
                 my $value = substr $parambuffer, 0, $vlen, '';
 
-                $tx->req->parse({$name => $value});
+                # Environment
+                $env->{$name} = $value;
+
+                # Debug
+                $self->app->log->debug(qq/FastCGI param: $name - "$value"./)
+                  if DEBUG;
 
                 # Store connection information
                 $tx->remote_address($value) if $name =~ /REMOTE_ADDR/i;
@@ -173,6 +181,12 @@ sub read_request {
 
         # Stdin
         elsif ($type eq 'STDIN') {
+
+            # Environment
+            if (keys %$env) {
+                $req->parse($env);
+                $env = {};
+            }
 
             # EOF?
             last unless $body;

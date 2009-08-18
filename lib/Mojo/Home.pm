@@ -10,10 +10,12 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 
 use File::Spec;
 use FindBin;
+use Mojo::Command;
 use Mojo::Loader;
-use Mojo::Script;
 
-__PACKAGE__->attr('app_class', default => 'Mojo::HelloWorld');
+__PACKAGE__->attr(app_class => 'Mojo::HelloWorld');
+
+__PACKAGE__->attr(_parts => sub { [] });
 
 # I'm normally not a praying man, but if you're up there,
 # please save me Superman.
@@ -27,7 +29,7 @@ sub detect {
     # Environment variable
     if ($ENV{MOJO_HOME}) {
         my @parts = File::Spec->splitdir($ENV{MOJO_HOME});
-        $self->{_parts} = \@parts;
+        $self->_parts(\@parts);
         return $self;
     }
 
@@ -35,7 +37,7 @@ sub detect {
     if ($class) {
 
         # Load?
-        my $file = Mojo::Script->class_to_path($class);
+        my $file = Mojo::Command->class_to_path($class);
         unless ($INC{$file}) {
             if (my $e = Mojo::Loader->load($class)) { die $e if ref $e }
         }
@@ -52,13 +54,12 @@ sub detect {
                 pop @home;
             }
 
-            $self->{_parts} = \@home;
+            $self->_parts(\@home);
         }
     }
 
     # FindBin fallback
-    $self->{_parts} = [split /\//, $FindBin::Bin]
-      unless @{$self->{_parts} || []};
+    $self->_parts([split /\//, $FindBin::Bin]) unless @{$self->_parts};
 
     return $self;
 }
@@ -67,7 +68,7 @@ sub lib_dir {
     my $self = shift;
 
     # Directory found
-    my $path = File::Spec->catdir(@{$self->{_parts} || []}, 'lib');
+    my $path = File::Spec->catdir(@{$self->_parts}, 'lib');
     return $path if -d $path;
 
     # No lib directory
@@ -77,17 +78,17 @@ sub lib_dir {
 sub parse {
     my ($self, $path) = @_;
     my @parts = File::Spec->splitdir($path);
-    $self->{_parts} = \@parts;
+    $self->_parts(\@parts);
     return $self;
 }
 
-sub rel_dir { File::Spec->catdir(@{shift->{_parts} || []}, split '/', shift) }
+sub rel_dir { File::Spec->catdir(@{shift->_parts}, split '/', shift) }
 
 sub rel_file {
-    File::Spec->catfile(@{shift->{_parts} || []}, split '/', shift);
+    File::Spec->catfile(@{shift->_parts}, split '/', shift);
 }
 
-sub to_string { File::Spec->catdir(@{shift->{_parts} || []}) }
+sub to_string { File::Spec->catdir(@{shift->_parts}) }
 
 1;
 __END__

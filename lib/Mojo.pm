@@ -8,16 +8,25 @@ use warnings;
 use base 'Mojo::Base';
 
 use Carp 'croak';
+use Mojo::Commands;
 use Mojo::Home;
 use Mojo::Log;
-use Mojo::Scripts;
-use Mojo::Transaction;
+use Mojo::Transaction::Single;
 
-__PACKAGE__->attr('home', default => sub { Mojo::Home->new });
-__PACKAGE__->attr('log',  default => sub { Mojo::Log->new });
+__PACKAGE__->attr(
+    build_tx_cb => sub {
+        sub {
+            my $tx = Mojo::Transaction::Single->new;
+            $tx->res->headers->header('X-Powered-By' => 'Mojo (Perl)');
+            return $tx;
+          }
+    }
+);
+__PACKAGE__->attr(home => sub { Mojo::Home->new });
+__PACKAGE__->attr(log  => sub { Mojo::Log->new });
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.991246';
+our $VERSION = '0.991250';
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -32,15 +41,10 @@ sub new {
     return $self;
 }
 
-sub build_tx {
-    my $tx = Mojo::Transaction->new;
-    $tx->res->headers->header('X-Powered-By' => 'Mojo (Perl)');
-    return $tx;
-}
-
+# Bart, stop pestering Satan!
 sub handler { croak 'Method "handler" not implemented in subclass' }
 
-# Start script system
+# Start command system
 sub start {
     my $class = shift;
 
@@ -51,7 +55,7 @@ sub start {
     $ENV{MOJO_APP} ||= $class;
 
     # Start!
-    Mojo::Scripts->start(@_);
+    Mojo::Commands->start(@_);
 }
 
 1;
@@ -108,6 +112,11 @@ For userfriendly documentation see L<Mojo::Manual>.
 
 L<Mojo> implements the following attributes.
 
+=head2 C<build_tx_cb>
+
+    my $cb = $mojo->build_tx_cb;
+    $mojo  = $mojo->build_tx_cb(sub { ... });
+
 =head2 C<home>
 
     my $home = $mojo->home;
@@ -126,10 +135,6 @@ new ones.
 =head2 C<new>
 
     my $mojo = Mojo->new;
-
-=head2 C<build_tx>
-
-    my $tx = $mojo->build_tx;
 
 =head2 C<handler>
 
@@ -216,7 +221,7 @@ Marcus Ramberg
 
 Mark Stosberg
 
-Maxym Komar
+Maksym Komar
 
 Pascal Gaudette
 
@@ -230,17 +235,17 @@ Robert Hicks
 
 Shu Cho
 
+Stanis Trendelenburg
+
 Uwe Voelker
 
 Viacheslav Tikhanovskii
 
 Yuki Kimoto
 
-=head1 COPYRIGHT
+=head1 COPYRIGHT AND LICENSE
 
 Copyright (C) 2008-2009, Sebastian Riedel.
-
-=head1 LICENSE
 
 This program is free software, you can redistribute it and/or modify it under
 the terms of the Artistic License version 2.0.

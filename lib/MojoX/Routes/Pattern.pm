@@ -29,13 +29,15 @@ sub new {
 
 sub match {
     my ($self, $path) = @_;
+
+    # Match
     my $result = $self->shape_match(\$path);
 
-    # Just a partial match
-    return if length $path;
+    # Endpoint?
+    return $result if !$path || $path eq '/';
 
-    # Result
-    return $result;
+    # Partial or no match
+    return;
 }
 
 sub parse {
@@ -97,7 +99,8 @@ sub render {
 
         $string = "$rendered$string";
     }
-    return $string;
+
+    return $string || '/';
 }
 
 sub shape_match {

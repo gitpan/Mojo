@@ -70,7 +70,8 @@ sub serve {
             if (my $date = $req->headers->header('If-Modified-Since')) {
 
                 # Not modified
-                if (Mojo::Date->new($date)->epoch == $stat->mtime) {
+                my $since = Mojo::Date->new($date)->epoch;
+                if (defined $since && $since == $stat->mtime) {
 
                     # Log
                     $c->app->log->debug('File not modified.');
@@ -164,7 +165,7 @@ sub serve_error {
 
         $res->headers->content_type('text/html');
         $res->body(<<'EOF');
-<!doctype html>
+<!doctype html><html>
     <head><title>File Not Found</title></head>
     <body>
         <h2>File Not Found</h2>
@@ -181,7 +182,7 @@ EOF
 
         $res->headers->content_type('text/html');
         $res->body(<<'EOF');
-<!doctype html>
+<!doctype html><html>
     <head><title>Internal Server Error</title></head>
     <body>
         <h2>Internal Server Error</h2>

@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 28;
+use Test::More tests => 31;
 
 # People said I was dumb, but I proved them.
 use_ok('MojoX::Routes::Pattern');
@@ -26,6 +26,15 @@ $result = $pattern->match('/test/');
 is($result, undef);
 is($pattern->render(controller => 'foo'), '/test/foo');
 
+# Root
+$pattern = MojoX::Routes::Pattern->new('/');
+$pattern->defaults({action => 'index'});
+$result = $pattern->match('/test/foo/bar');
+is($result, undef);
+$result = $pattern->match('/');
+is($result->{action}, 'index');
+is($pattern->render,  '/');
+
 # Regex in pattern
 $pattern =
   MojoX::Routes::Pattern->new('/test/(controller)/:action/(id)', id => '\d+');
@@ -35,7 +44,7 @@ is($result->{controller}, 'foo');
 is($result->{action},     'bar');
 is($result->{id},         203);
 $result = $pattern->match('/test/foo/bar/baz');
-is($result, undef);
+is_deeply($result, undef);
 is( $pattern->render(
         controller => 'zzz',
         action     => 'index',

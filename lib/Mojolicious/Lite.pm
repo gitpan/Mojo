@@ -195,8 +195,9 @@ Names are always the last argument.
     __DATA__
 
     @@ index.html.epl
-    <a href="<%= shift->url_for('foo') %>">Foo</a>.
-    <a href="<%= shift->url_for('bar') %>">Bar</a>.
+    % my $self = shift;
+    <a href="<%= $self->url_for('foo') %>">Foo</a>.
+    <a href="<%= $self->url_for('bar') %>">Bar</a>.
 
     @@ foo.html.epl
     <a href="<%= shift->url_for('index') %>">Home</a>.
@@ -215,7 +216,7 @@ Templates can have layouts.
     We've got content!
 
     @@ layouts/green.html.epl
-    <!html>
+    <!doctype html><html>
         <head><title>Green!</title></head>
         <body><%= shift->render_inner %></body>
     </html>
@@ -329,7 +330,7 @@ multiple features at once.
 
     get '/' => 'index';
 
-    post '/form' => 'form' => sub {
+    post '/form' => sub {
         my $self = shift;
 
         my $groovy = $self->req->param('groovy') || 'Austin Powers';
@@ -340,7 +341,7 @@ multiple features at once.
             layout   => 'funky',
             groovy   => $groovy
         );
-    };
+    } => 'form';
 
     shagadelic;
     __DATA__
@@ -364,7 +365,7 @@ multiple features at once.
 
     @@ layouts/funky.html.epl
     % my $self = shift;
-    <!html>
+    <!doctype html><html>
         <head><title>Funky!</title></head>
         <body>
             <%= $self->render_inner %>
@@ -395,7 +396,7 @@ Formats can be automatically detected by looking at file extensions.
     __DATA__
 
     @@ detected.html.epl
-    <!html>
+    <!doctype html><html>
         <head><title>Detected!</title></head>
         <body>HTML was detected.</body>
     </html>

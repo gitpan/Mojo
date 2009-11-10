@@ -84,7 +84,7 @@ sub get_body_chunk {
     my ($self, $offset) = @_;
 
     # Body generator
-    return $self->body_cb->($self, $offset) if $self->body_cb;
+    return $self->generate_body_chunk($offset) if $self->body_cb;
 
     # Multipart
     my $boundary        = $self->build_boundary;
@@ -128,12 +128,16 @@ sub get_body_chunk {
 sub parse {
     my $self = shift;
 
-    # Upgrade state
-    $self->state('multipart_preamble') if $self->is_state('body');
-
     # Parse headers and filter body
     $self->SUPER::parse(@_);
 
+    # Custom body parser
+    return $self if $self->body_cb;
+
+    # Upgrade state
+    $self->state('multipart_preamble') if $self->is_state('body');
+
+    # Parse multipart content
     $self->_parse_multipart;
 
     return $self;

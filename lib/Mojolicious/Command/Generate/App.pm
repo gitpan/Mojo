@@ -41,38 +41,24 @@ sub run {
     $self->create_rel_dir("$name/log");
 
     # Static
-    $self->render_to_rel_file('404',    "$name/public/404.html");
-    $self->render_to_rel_file('500',    "$name/public/500.html");
     $self->render_to_rel_file('static', "$name/public/index.html");
 
     # Layout and Templates
     $self->renderer->line_start('%%');
     $self->renderer->tag_start('<%%');
     $self->renderer->tag_end('%%>');
+    $self->render_to_rel_file('not_found',
+        "$name/templates/not_found.html.ep");
     $self->render_to_rel_file('exception',
-        "$name/templates/exception.html.epl");
+        "$name/templates/exception.html.ep");
     $self->render_to_rel_file('layout',
-        "$name/templates/layouts/default.html.epl");
+        "$name/templates/layouts/default.html.ep");
     $self->render_to_rel_file('welcome',
-        "$name/templates/example/welcome.html.epl");
+        "$name/templates/example/welcome.html.ep");
 }
 
 1;
 __DATA__
-@@ 404
-<!doctype html><html>
-    <head><title>File Not Found</title></head>
-    <body>
-        <h2>File Not Found</h2>
-    </body>
-</html>
-@@ 500
-<!doctype html><html>
-    <head><title>Internal Server Error</title></head>
-    <body>
-        <h2>Internal Server Error</h2>
-    </body>
-</html>
 @@ mojo
 % my $class = shift;
 #!/usr/bin/env perl
@@ -82,20 +68,22 @@ use warnings;
 
 use FindBin;
 
-use lib "$FindBin::Bin/lib";
 use lib "$FindBin::Bin/../lib";
+use lib "$FindBin::Bin/../../lib";
 
 # Check if Mojo is installed
-eval 'use Mojolicious';
+eval 'use Mojolicious::Commands';
 die <<EOF if $@;
 It looks like you don't have the Mojo Framework installed.
 Please visit http://mojolicious.org for detailed installation instructions.
 
 EOF
 
-# Start application
-use <%= $class %>;
-<%= $class %>->start;
+# Application
+$ENV{MOJO_APP} ||= '<%= $class %>';
+
+# Start commands
+Mojolicious::Commands->start;
 @@ appclass
 % my $class = shift;
 package <%= $class %>;
@@ -131,23 +119,19 @@ use base 'Mojolicious::Controller';
 sub welcome {
     my $self = shift;
 
-    # Render template "example/welcome.html.epl" with message and layout
-    $self->render(
-        layout  => 'default',
-        message => 'Welcome to the Mojolicious Web Framework!'
-    );
+    # Render template "example/welcome.html.ep" with message
+    $self->render(message => 'Welcome to the Mojolicious Web Framework!');
 }
 
 1;
 @@ static
 <!doctype html><html>
-    <head><title>Welcome to the Mojolicious Web Framework!</title></head>
-    <body>
-        <h2>Welcome to the Mojolicious Web Framework!</h2>
-        This is the static document "public/index.html",
-        <a href="/">click here</a>
-        to get back to the start.
-    </body>
+  <head><title>Welcome to the Mojolicious Web Framework!</title></head>
+  <body>
+    <h2>Welcome to the Mojolicious Web Framework!</h2>
+    This is the static document "public/index.html",
+    <a href="/">click here</a> to get back to the start.
+  </body>
 </html>
 @@ test
 % my $class = shift;
@@ -173,56 +157,75 @@ $client->process_app('<%= $class %>', $tx);
 is($tx->res->code, 200);
 is($tx->res->headers->content_type, 'text/html');
 like($tx->res->content->asset->slurp, qr/Mojolicious Web Framework/i);
+@@ not_found
+<!doctype html><html>
+  <head><title>Not Found</title></head>
+  <body>
+    The page you were requesting
+    "<%= $self->req->url->path || '/' %>"
+    could not be found.
+  </body>
+</html>
 @@ exception
+<!doctype html><html>
 % use Data::Dumper ();
-% my $self = shift;
 % my $s = $self->stash;
 % my $e = $self->stash('exception');
 % delete $s->{inner_template};
-<!doctype html><html>
-<head><title>Exception</title></head>
-    <body>
-        This page was generated from the template
-        "templates/exception.html.epl".
-        <pre><%= $e->message %></pre>
-        <pre>
-% for my $line (@{$e->lines_before}) {
-<%= $line->[0] %>: <%== $line->[1] %>
-% }
-% if ($e->line->[0]) {
-<b><%= $e->line->[0] %>: <%== $e->line->[1] %></b>
-% }
-% for my $line (@{$e->lines_after}) {
-<%= $line->[0] %>: <%== $line->[1] %>
-% }
-        </pre>
-        <pre>
-% for my $frame (@{$e->stack}) {
-<%== $frame->[1] %>: <%= $frame->[2] %>
-% }
-        </pre>
-        <pre>
 % delete $s->{exception};
-%== Data::Dumper->new([$s])->Maxdepth(2)->Indent(1)->Terse(1)->Dump
+% my $dump = Data::Dumper->new([$s])->Maxdepth(2)->Indent(1)->Terse(1)->Dump;
 % $s->{exception} = $e;
-        </pre>
-    </body>
+  <head>
+	<title>Exception</title>
+	<style type="text/css">
+	  body {
+		font: 0.9em Verdana, "Bitstream Vera Sans", sans-serif;
+	  }
+	  .snippet {
+        font: 115% Monaco, "Courier New", monospace;
+	  }
+	</style>
+  </head>
+  <body>
+    <% if ($self->app->mode eq 'development') { %>
+	  <div>
+        This page was generated from the template
+        "templates/exception.html.ep".
+      </div>
+      <div class="snippet"><pre><%= $e->message %></pre></div>
+      <div>
+        <% for my $line (@{$e->lines_before}) { %>
+          <div class="snippet"><%= $line->[0] %>: <%= $line->[1] %></div>
+        <% } %>
+        <% if ($e->line->[0]) { %>
+          <div class="snippet">
+	        <b><%= $e->line->[0] %>: <%= $e->line->[1] %></b>
+	      </div>
+        <% } %>
+        <% for my $line (@{$e->lines_after}) { %>
+          <div class="snippet"><%= $line->[0] %>: <%= $line->[1] %></div>
+        <% } %>
+      </div>
+      <div class="snippet"><pre><%= $dump %></pre></div>
+    <% } else { %>
+      <div>A server error occured, please try gain later.</div>
+    <% } %>
+  </body>
 </html>
 @@ layout
-% my $self = shift;
 <!doctype html><html>
-    <head><title>Welcome</title></head>
-    <body>
-        <%= $self->render_inner %>
-    </body>
+  <head><title>Welcome</title></head>
+  <body>
+    <%== content %>
+  </body>
 </html>
 @@ welcome
-% my $self = shift;
-<h2><%= $self->stash('message') %></h2>
+% layout 'default';
+<h2><%= $message %></h2>
 This page was generated from the template
-"templates/example/welcome.html.epl" and the layout
-"templates/layouts/default.html.epl",
-<a href="<%= $self->url_for %>">click here</a>
+"templates/example/welcome.html.ep" and the layout
+"templates/layouts/default.html.ep",
+<a href="<%== url_for %>">click here</a>
 to reload the page or
 <a href="/index.html">here</a>
 to move forward to a static page.

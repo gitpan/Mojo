@@ -21,7 +21,7 @@ our $SUBDELIM   = '!\$\&\'\(\)\*\+\,\;\=';
 our $PCHAR      = "$UNRESERVED$SUBDELIM\%\:\@";
 
 # The specs for this are blurry, it's mostly a colelction of w3c suggestions
-our $PARAM = "$UNRESERVED\!\$\'\(\)\*\+\,\:\@\%\/\?";
+our $PARAM = "$UNRESERVED\!\$\'\(\)\*\,\:\@\/\?";
 
 sub new {
     my $self = shift->SUPER::new();
@@ -50,8 +50,9 @@ sub authority {
             $port = $2;
         }
 
-        $self->userinfo($userinfo ? b($userinfo)->url_unescape : undef);
-        $self->host($host         ? b($host)->url_unescape     : undef);
+        $self->userinfo(
+            $userinfo ? b($userinfo)->url_unescape->to_string : undef);
+        $self->host($host ? b($host)->url_unescape->to_string : undef);
         $self->port($port);
 
         return $self;

@@ -32,21 +32,14 @@ sub dispatch {
     return 1 unless $match && @{$match->stack};
 
     # Initialize stash with captures
-    my %captures = %{$match->captures};
-    foreach my $key (keys %captures) {
-        $captures{$key} = b($captures{$key})->url_unescape->to_string;
-    }
-    $c->stash({%captures});
+    $c->stash($match->captures);
 
     # Walk the stack
     my $e = $self->walk_stack($c);
     return $e if $e;
 
     # Render
-    $self->render($c);
-
-    # All seems ok
-    return;
+    return $self->render($c);
 }
 
 sub dispatch_callback {
@@ -206,7 +199,13 @@ sub render {
     my ($self, $c) = @_;
 
     # Render
-    $c->render unless $c->stash->{rendered};
+    return !$c->render
+      unless $c->stash->{rendered}
+          || $c->res->code
+          || $c->tx->is_paused;
+
+    # Nothing to render
+    return;
 }
 
 sub walk_stack {

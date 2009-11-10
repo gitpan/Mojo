@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 33;
+use Test::More tests => 35;
 
 # Now that's a wave of destruction that's easy on the eyes.
 use_ok('Mojo::Parameters');
@@ -21,7 +21,7 @@ is($params->to_string, 'foo=b%3Bar;baz=23');
 is("$params",          'foo=b%3Bar;baz=23');
 
 # Append
-is_deeply($params->params, ['foo', 'b%3Bar', 'baz', 23]);
+is_deeply($params->params, ['foo', 'b;ar', 'baz', 23]);
 $params->append('a', 4, 'a', 5, 'b', 6, 'b', 7);
 is($params->to_string, "foo=b%3Bar;baz=23;a=4;a=5;b=6;b=7");
 
@@ -50,6 +50,9 @@ is($params->to_string, 'q=1;w=2;t=7');
 
 # Hash
 is_deeply($params->to_hash, {q => 1, w => 2, t => 7});
+
+# List names
+is_deeply([$params->param], [qw/q t w/]);
 
 # Append
 $params->append('a', 4, 'a', 5, 'b', 6, 'b', 7);
@@ -87,8 +90,9 @@ $params = Mojo::Parameters->new('foo=%2B');
 is($params->param('foo'), '+');
 is_deeply($params->to_hash, {foo => '+'});
 $params->param('foo ' => 'a');
+is($params->to_string, "foo=%2B&foo+=a");
 $params->remove('foo ');
 is_deeply($params->to_hash, {foo => '+'});
 $params->append('1 2', '3+3');
-is($params->param('1 2'), '3 3');
-is_deeply($params->to_hash, {foo => '+', '1 2' => '3 3'});
+is($params->param('1 2'), '3+3');
+is_deeply($params->to_hash, {foo => '+', '1 2' => '3+3'});

@@ -11,8 +11,9 @@ use overload '""' => sub { shift->to_string }, fallback => 1;
 use Mojo::ByteStream 'b';
 use Mojo::URL;
 
+__PACKAGE__->attr(charset        => 'UTF-8');
 __PACKAGE__->attr(pair_separator => '&');
-__PACKAGE__->attr(params => sub { [] });
+__PACKAGE__->attr(params         => sub { [] });
 
 # Yeah, Moe, that team sure did suck last night. They just plain sucked!
 # I've seen teams suck before,
@@ -34,18 +35,8 @@ sub new {
 sub append {
     my $self = shift;
 
-    for (@_) {
-        my $value = defined $_ ? "$_" : '';
-
-        # We replace whitespace with "+"
-        $value =~ s/\ /\+/g;
-
-        # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
-        $value = b($value)->url_escape($Mojo::URL::PARAM)->to_string;
-
-        # Append
-        push @{$self->params}, $value;
-    }
+    # Append
+    push @{$self->params}, map { defined $_ ? "$_" : '' } @_;
 
     return $self;
 }
@@ -68,11 +59,8 @@ sub param {
     my $self = shift;
     my $name = shift;
 
-    # We replace whitespace with "+"
-    $name =~ s/\ /\+/g;
-
-    # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
-    $name = b($name)->url_escape($Mojo::URL::PARAM);
+    # List names
+    return sort keys %{$self->to_hash} unless $name;
 
     # Cleanup
     $self->remove($name) if defined $_[0];
@@ -82,21 +70,11 @@ sub param {
         $self->append($name, $value);
     }
 
-    # List
+    # List values
     my @values;
     my $params = $self->params;
     for (my $i = 0; $i < @$params; $i += 2) {
         push @values, $params->[$i + 1] if $params->[$i] eq $name;
-    }
-
-    # Unescape
-    for (my $i = 0; $i <= $#values; $i++) {
-
-        # We replace "+" with whitespace
-        $values[$i] =~ s/\+/\ /g if $values[$i];
-
-        # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
-        $values[$i] = b($values[$i])->url_unescape->to_string;
     }
 
     return wantarray ? @values : $values[0];
@@ -112,11 +90,13 @@ sub parse {
     # Clear
     $self->params([]);
 
-    # utf8
-    $string = b($string)->decode('utf8')->to_string;
-
     # Detect query string without key/value pairs
     if ($string !~ /\=/) {
+        $string =~ s/\+/\ /g;
+
+        # Unescape
+        $string = b($string)->url_unescape->decode($self->charset)->to_string;
+
         $self->params([$string, undef]);
         return $self;
     }
@@ -127,10 +107,18 @@ sub parse {
     # W3C suggests to also accept ";" as a separator
     for my $pair (split /[\&\;]+/, $string) {
 
+        # Parse
         $pair =~ /^([^\=]*)(?:=(.*))?$/;
-
         my $name  = $1;
         my $value = $2;
+
+        # Replace "+" with whitespace
+        $name  =~ s/\+/\ /g;
+        $value =~ s/\+/\ /g;
+
+        # Unescape
+        $name  = b($name)->url_unescape->decode($self->charset)->to_string;
+        $value = b($value)->url_unescape->decode($self->charset)->to_string;
 
         push @{$self->params}, $name, $value;
     }
@@ -143,21 +131,11 @@ sub remove {
 
     $name = '' unless defined $name;
 
-    # We replace whitespace with "+"
-    $name =~ s/\ /\+/g;
-
-    # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
-    $name = b($name)->url_escape($Mojo::URL::PARAM);
-
     # Remove
     my $params = $self->params;
     for (my $i = 0; $i < @$params;) {
-        if ($params->[$i] eq $name) {
-            splice @$params, $i, 2;
-        }
-        else {
-            $i += 2;
-        }
+        if ($params->[$i] eq $name) { splice @$params, $i, 2 }
+        else                        { $i += 2 }
     }
     $self->params($params);
 
@@ -173,14 +151,6 @@ sub to_hash {
     for (my $i = 0; $i < @$params; $i += 2) {
         my $name  = $params->[$i];
         my $value = $params->[$i + 1];
-
-        # We replace "+" with whitepsace
-        $name =~ s/\+/\ /g;
-        $value =~ s/\+/\ /g if $value;
-
-        # Unescape
-        $name  = b($name)->url_unescape->to_string;
-        $value = b($value)->url_unescape->to_string;
 
         # Array
         if (exists $params{$name}) {
@@ -209,28 +179,13 @@ sub to_string {
         my $name  = $params->[$i];
         my $value = $params->[$i + 1];
 
-        # We replace whitespace with "+"
-        $name =~ s/\ /\+/g;
+        # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
+        $name = b($name)->url_escape($Mojo::URL::PARAM);
+        $value = b($value)->url_escape($Mojo::URL::PARAM) if $value;
 
-        # Value is optional
-        if (defined $value) {
-
-            # We replace whitespace with "+"
-            $value =~ s/\ /\+/g;
-
-            # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
-            $value = b($value)->url_escape($Mojo::URL::PARAM);
-
-            # *( pchar / "/" / "?" ) with the exception of ";", "&" and "="
-            $name = b($name)->url_escape($Mojo::URL::PARAM);
-        }
-
-        # No value
-        else {
-
-            # *( pchar / "/" / "?" )
-            $name = b($name)->url_escape($Mojo::URL::PCHAR);
-        }
+        # Replace whitespace with "+"
+        $name =~ s/\%20/\+/g;
+        $value =~ s/\%20/\+/g if $value;
 
         push @params, defined $value ? "$name=$value" : "$name";
     }
@@ -260,6 +215,11 @@ L<Mojo::Parameters> is a container for form parameters.
 =head1 ATTRIBUTES
 
 L<Mojo::Parameters> implements the following attributes.
+
+=head2 C<charset>
+
+    my $charset = $params->charset;
+    $params     = $params->charset('UTF-8');
 
 =head2 C<pair_separator>
 

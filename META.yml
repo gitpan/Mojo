@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Mojo
-version:            0.991251
+version:            0.999901
 abstract:           Web Framework
 author:
     - Sebastian Riedel <sri@cpan.org>
@@ -45,7 +45,7 @@ no_index:
         - t
         - inc
         - t
-generated_by:       ExtUtils::MakeMaker version 6.54
+generated_by:       ExtUtils::MakeMaker version 6.55_02
 meta-spec:
     url:      http://module-build.sourceforge.net/META-spec-v1.4.html
     version:  1.4

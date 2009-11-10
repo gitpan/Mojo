@@ -5,7 +5,9 @@
 use strict;
 use warnings;
 
-use Test::More tests => 398;
+use utf8;
+
+use Test::More tests => 427;
 
 use File::Spec;
 use File::Temp;
@@ -77,6 +79,40 @@ is($req->minor_version,           0);
 is($req->url,                     '/foo/bar/baz.html?foo=13#23');
 is($req->headers->content_type,   'text/plain');
 is($req->headers->content_length, 27);
+
+# Parse full HTTP 1.0 request with zero chunk
+$req = Mojo::Message::Request->new;
+$req->parse('GET /foo/bar/baz.html?fo');
+$req->parse("o=13#23 HTTP/1.0\x0d\x0aContent");
+$req->parse('-Type: text/');
+$req->parse("plain\x0d\x0aContent-Length: 27\x0d\x0a\x0d\x0aHell");
+$req->parse("o World!\n123");
+$req->parse('0');
+$req->parse("\nlalalala\n");
+is($req->state,                   'done');
+is($req->method,                  'GET');
+is($req->major_version,           1);
+is($req->minor_version,           0);
+is($req->url,                     '/foo/bar/baz.html?foo=13#23');
+is($req->headers->content_type,   'text/plain');
+is($req->headers->content_length, 27);
+
+# Parse full HTTP 1.0 request with utf8 form input
+$req = Mojo::Message::Request->new;
+$req->parse('GET /foo/bar/baz.html?fo');
+$req->parse("o=13#23 HTTP/1.0\x0d\x0aContent");
+$req->parse('-Type: application/');
+$req->parse("x-www-form-urlencoded\x0d\x0aContent-Length: 53");
+$req->parse("\x0d\x0a\x0d\x0a");
+$req->parse('name=%D0%92%D1%8F%D1%87%D0%B5%D1%81%D0%BB%D0%B0%D0%B2');
+is($req->state,                   'done');
+is($req->method,                  'GET');
+is($req->major_version,           1);
+is($req->minor_version,           0);
+is($req->url,                     '/foo/bar/baz.html?foo=13#23');
+is($req->headers->content_type,   'application/x-www-form-urlencoded');
+is($req->headers->content_length, 53);
+is($req->param('name'),           'Вячеслав');
 
 # Parse HTTP 0.9 request
 $req = Mojo::Message::Request->new;
@@ -299,8 +335,7 @@ $req->method('GET');
 $req->url->parse('http://127.0.0.1/');
 is($req->build,
         "GET / HTTP/1.1\x0d\x0a"
-      . "Host: 127.0.0.1\x0d\x0a"
-      . "Content-Length: 0\x0d\x0a\x0d\x0a");
+      . "Host: 127.0.0.1\x0d\x0aContent-Length: 0\x0d\x0a\x0d\x0a");
 
 # Build HTTP 1.1 start line and header
 $req = Mojo::Message::Request->new;
@@ -310,8 +345,7 @@ $req->headers->expect('100-continue');
 is($req->build,
         "GET /foo/bar HTTP/1.1\x0d\x0a"
       . "Expect: 100-continue\x0d\x0a"
-      . "Host: 127.0.0.1\x0d\x0a"
-      . "Content-Length: 0\x0d\x0a\x0d\x0a");
+      . "Host: 127.0.0.1\x0d\x0aContent-Length: 0\x0d\x0a\x0d\x0a");
 
 # Build full HTTP 1.1 request
 $req = Mojo::Message::Request->new;
@@ -392,7 +426,7 @@ is($req->build,
       . "\x0d\x0af\x0d\x0a"
       . "hello world2!\n\n"
       . "\x0d\x0a0\x0d\x0a\x0d\x0a");
-is($counter2, 6);
+ok($counter2);
 
 # Build HTTP 1.1 chunked request with trailing headers
 $req = Mojo::Message::Request->new;
@@ -429,7 +463,7 @@ is($req->build,
 
 # Status code and message
 my $res = Mojo::Message::Response->new;
-is($res->code,            200);
+is($res->code,            undef);
 is($res->default_message, 'OK');
 is($res->message,         undef);
 $res->message('Test');
@@ -969,6 +1003,32 @@ is($res2->cookie('baz')->value,    'yada');
 is($res2->cookie('bar')->path,     '/test/23');
 is($res2->cookie('bar')->value,    'baz');
 
+# Build response with callback (make sure its called)
+$res = Mojo::Message::Response->new;
+$res->code(200);
+$res->headers->content_length(10);
+$res->body(sub { die "Body coderef was called properly\n" });
+eval { $res->get_body_chunk(0) };
+is($@, "Body coderef was called properly\n");
+
+# Build response with callback (consistency calls)
+$res = Mojo::Message::Response->new;
+my $body = 'I is here';
+$res->headers->content_length(length($body));
+$res->body(sub { return substr($body, $_[1], 1) });
+my $full   = '';
+my $count  = 0;
+my $offset = 0;
+while (1) {
+    my $chunk = $res->get_body_chunk($offset);
+    last unless length($chunk);
+    $full .= $chunk;
+    $offset = length($full);
+    $count++;
+}
+is($count, length($body));
+is($full,  $body);
+
 # Build full HTTP 1.1 request with cookies
 $req = Mojo::Message::Request->new;
 $req->method('GET');
@@ -1064,6 +1124,31 @@ is($req->method,        'GET');
 is($req->major_version, 1);
 is($req->minor_version, 1);
 is($req->url,           '/perldoc?Mojo::Message::Request');
+
+# Body helper
+$req = Mojo::Message::Request->new;
+$req->body('hi there!');
+is($req->body, 'hi there!');
+$req->body('');
+is($req->body, '');
+$req->body('hi there!');
+is($req->body, 'hi there!');
+$req->body(undef);
+is($req->body, '');
+$req->body(sub { });
+is(ref $req->body, 'CODE');
+$req->body(undef);
+is($req->body, '');
+$req->body(0);
+is($req->body, 0);
+$req->body(sub { });
+is(ref $req->body, 'CODE');
+$req->body('hello!');
+is($req->body,    'hello!');
+is($req->body_cb, undef);
+$req->content(Mojo::Content::MultiPart->new);
+$req->body('hi!');
+is($req->body, 'hi!');
 
 # Version management
 my $m = Mojo::Message->new;

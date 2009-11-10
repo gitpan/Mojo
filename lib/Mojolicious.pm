@@ -42,7 +42,9 @@ sub new {
     $self->static->root($self->home->rel_dir('public'));
 
     # Hide our methods
-    $self->routes->hide(qw/render_inner render_partial render_text url_for/);
+    $self->routes->hide(qw/client param pause redirect_to render_json/);
+    $self->routes->hide(qw/render_inner render_partial render_text resume/);
+    $self->routes->hide('url_for');
 
     # Mode
     my $mode = $self->mode;
@@ -69,6 +71,7 @@ sub dispatch {
 
     # New request
     my $path = $c->req->url->path;
+    $path ||= '/';
     $self->log->debug(qq/*** Request for "$path". ***/);
 
     # Try to find a static file
@@ -79,20 +82,22 @@ sub dispatch {
 
     # Exception
     if (ref $e) {
-
-        # Development mode
-        if ($self->mode eq 'development') {
-            $c->stash(exception => $e);
-            $c->res->code(500);
-            $c->render(template => 'exception', format => 'html');
-        }
-
-        # Production mode
-        else { $self->static->serve_500($c) }
+        $c->render(
+            template  => 'exception',
+            format    => 'html',
+            status    => 500,
+            exception => $e
+        ) or $self->static->serve_500($c);
     }
 
     # Nothing found
-    elsif ($e) { $self->static->serve_404($c) }
+    elsif ($e) {
+        $c->render(
+            template => 'not_found',
+            format   => 'html',
+            status   => 404
+        ) or $self->static->serve_404($c);
+    }
 }
 
 # Bite my shiny metal ass!
@@ -167,7 +172,7 @@ Mojolicious - Web Framework
 
 L<Mojolicous> is a MVC web framework built upon L<Mojo>.
 
-For userfriendly documentation see L<Mojo::Manual::Mojolicious>.
+For userfriendly documentation see L<Mojolicious::Book>.
 
 =head1 ATTRIBUTES
 

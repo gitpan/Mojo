@@ -7,12 +7,20 @@ use warnings;
 
 use base 'Mojo::Transaction';
 
+use Mojo::Transaction::Single;
+use Scalar::Util qw/isweak weaken/;
+
 __PACKAGE__->attr([qw/active finished inactive/] => sub { [] });
+__PACKAGE__->attr(
+    build_tx_cb => sub {
+        sub { Mojo::Transaction::Single->new }
+    }
+);
 __PACKAGE__->attr(safe_post => 0);
 
 __PACKAGE__->attr('_all_written');
 __PACKAGE__->attr(_current => 0);
-__PACKAGE__->attr(_info => sub { [] });
+__PACKAGE__->attr(_info => sub { {} });
 
 # No children have ever meddled with the Republican Party and lived to tell
 # about it.
@@ -20,20 +28,41 @@ sub new {
     my $self = shift->SUPER::new();
 
     # Transactions
-    $self->active([@_]);
+    for my $tx (@_) {
+
+        # State change callback
+        $tx->state_cb(
+            sub {
+
+                # Weaken
+                weaken $self unless isweak $self;
+
+                # Not finished
+                unless ($self->is_finished) {
+
+                    # State
+                    my $state =
+                        $self->_all_written
+                      ? $self->_first_active
+                      : $self->_current_active;
+                    $self->state($state->state) unless $state->is_finished;
+                    $self->state('read_response')
+                      if $self->is_state('done_with_leftovers');
+
+                    # Error
+                    $self->error(
+                        'Transaction error: ' . $self->_first_active->error)
+                      if $self->_first_active->has_error;
+                }
+            }
+        );
+
+        # Add transation to pipeline
+        push @{$self->active}, $tx;
+    }
 
     # Cache client info
-    $self->_info([$self->active->[0]->client_info]) if @_;
-
-    return $self;
-}
-
-sub client_connect {
-    my $self = shift;
-
-    # Connect all
-    $_->client_connect for @{$self->active};
-    $self->state('connect');
+    $self->_info($self->active->[0]->client_info) if @_;
 
     return $self;
 }
@@ -65,10 +94,11 @@ sub client_get_chunk {
     my $self = shift;
 
     # Get chunk from current writer
-    return $self->_current_active->client_get_chunk;
+    return $self->_current_active->client_get_chunk if $self->_current_active;
+    return;
 }
 
-sub client_info { @{shift->_info} }
+sub client_info { shift->_info }
 
 sub client_is_writing {
     my $self = shift;
@@ -80,6 +110,9 @@ sub client_read {
 
     # Read with current reader
     $self->_first_active->client_read($chunk);
+
+    # Force state change event
+    $self->_first_active->state($self->_first_active->state);
 
     # Transaction finished
     while ($self->_first_active->is_finished) {
@@ -99,9 +132,6 @@ sub client_read {
             $self->_first_active->client_read($leftovers);
         }
     }
-
-    # Inherit state
-    $self->_client_inherit_state;
 
     return $self;
 }
@@ -139,41 +169,6 @@ sub client_spin {
         }
     }
 
-    # Inherit state
-    $self->_client_inherit_state;
-
-    return $self;
-}
-
-sub client_written {
-    my ($self, $length) = @_;
-
-    # Written
-    $self->_current_active->client_written($length);
-
-    return $self;
-}
-
-sub server_accept {
-    my ($self, $tx) = @_;
-
-    # Meta information
-    $tx->connection($self->connection);
-    $tx->kept_alive($self->kept_alive);
-    $tx->local_address($self->local_address);
-    $tx->local_port($self->local_port);
-    $tx->remote_address($self->remote_address);
-    $tx->remote_port($self->remote_port);
-
-    # Accept
-    $tx->server_accept;
-
-    # Active
-    push @{$self->active}, $tx;
-
-    # Inherit state
-    $self->_server_inherit_state;
-
     return $self;
 }
 
@@ -182,18 +177,6 @@ sub server_get_chunk {
 
     # Get chunk from current writer
     return $self->_first_active->server_get_chunk;
-}
-
-sub server_handled {
-    my $self = shift;
-
-    # Handled current reader
-    $self->server_tx->server_handled;
-
-    # Inherit state
-    $self->_server_inherit_state;
-
-    return $self;
 }
 
 sub server_is_writing {
@@ -217,11 +200,17 @@ sub server_leftovers {
     # Done
     $active->req->done;
 
+    # Add a new transaction
+    $self->_new_tx;
+
     return $leftovers;
 }
 
 sub server_read {
     my $self = shift;
+
+    # Add a new transaction if neccessary
+    $self->_new_tx unless $self->_current_active;
 
     # Request without a transaction
     unless ($self->_current_active) {
@@ -231,9 +220,6 @@ sub server_read {
 
     # Normal request
     $self->_current_active->server_read(@_);
-
-    # Inherit state
-    $self->_server_inherit_state;
 
     return $self;
 }
@@ -255,47 +241,14 @@ sub server_spin {
     $self->_inactivate_first
       if $self->_first_active && $self->_first_active->is_finished;
 
-    # Inherit state
-    $self->_server_inherit_state;
+    # Done
+    $self->state('done') unless $self->_first_active;
 
     return $self;
 }
 
 # Current reader
 sub server_tx { shift->_current_active }
-
-sub server_written {
-    my $self = shift;
-
-    # Written
-    $self->_first_active->server_written(@_);
-
-    return $self;
-}
-
-# We are always in reading mode according to RFC, so writing has priority
-sub _client_inherit_state {
-    my $self = shift;
-
-    # Inherit
-    unless ($self->is_finished) {
-
-        # State
-        $self->state(
-              $self->_all_written
-            ? $self->_first_active->state
-            : $self->_current_active->state
-        );
-        $self->state('read_response')
-          if $self->is_state('done_with_leftovers');
-
-        # Error
-        $self->error('Transaction error: ' . $self->_first_active->error)
-          if $self->_first_active->has_error;
-    }
-
-    return $self;
-}
 
 sub _current_active {
     my $self = shift;
@@ -353,6 +306,60 @@ sub _is_writing {
     return $writing;
 }
 
+sub _new_tx {
+    my $self = shift;
+
+    # New transaction
+    my $tx = $self->build_tx_cb->($self);
+
+    # Active
+    push @{$self->active}, $tx;
+
+    # Meta information
+    $tx->connection($self->connection);
+    $tx->kept_alive($self->kept_alive);
+    $tx->local_address($self->local_address);
+    $tx->local_port($self->local_port);
+    $tx->remote_address($self->remote_address);
+    $tx->remote_port($self->remote_port);
+
+    # Weaken
+    weaken $self;
+
+    # State change callback
+    $tx->state_cb(
+        sub {
+
+            # Shortcut
+            return unless $self;
+
+            # Keep alive?
+            $self->keep_alive($self->_first_active->keep_alive)
+              if $self->_first_active
+                  && !$self->_first_active->req->is_state('start');
+
+            # Handler first
+            my $reader = $self->_current_active;
+            if ($reader && $reader->state =~ /^handle_/) {
+                $self->state($reader->state);
+                return $self;
+            }
+
+            # Inherit state
+            if ($self->_first_active) {
+                $self->state($self->_first_active->state)
+                  unless $self->_first_active->is_finished;
+                $self->error(
+                    'Transaction error: ' . $self->_first_active->error)
+                  if $self->_first_active->has_error;
+            }
+            else { $self->state('done') }
+        }
+    );
+
+    return $self;
+}
+
 sub _next_active {
     my $self = shift;
 
@@ -364,32 +371,6 @@ sub _next_active {
 
     # Last
     return;
-}
-
-# We are always in reading mode according to RFC, so writing has priority
-sub _server_inherit_state {
-    my $self = shift;
-
-    # Keep alive?
-    $self->keep_alive($self->_first_active->keep_alive)
-      if $self->_first_active;
-
-    # Handler first
-    my $reader = $self->_current_active;
-    if ($reader && $reader->state =~ /^handle_/) {
-        $self->state($reader->state);
-        return $self;
-    }
-
-    # Inherit state
-    if ($self->_first_active) {
-        $self->state($self->_first_active->state);
-        $self->error('Transaction error: ' . $self->_first_active->error)
-          if $self->_first_active->has_error;
-    }
-    else { $self->state('done') }
-
-    return $self;
 }
 
 1;
@@ -419,6 +400,11 @@ L<Mojo::Transaction> and implements the following new ones.
     my $active = $p->active;
     $p         = $p->active([Mojo::Transaction::Single->new]);
 
+=head2 C<build_tx_cb>
+
+    my $cb = $p->build_tx_cb;
+    $p     = $p->build_tx_cb(sub {...});
+
 =head2 C<inactive>
 
     my $inactive = $p->inactive;
@@ -445,10 +431,6 @@ and implements the following new ones.
     my $p = Mojo::Transaction::Pipeline->new($tx1);
     my $p = Mojo::Transaction::Pipeline->new($tx1, $tx2, $tx3);
 
-=head2 C<client_connect>
-
-    $p = $p->client_connect;
-
 =head2 C<client_connected>
 
     $p = $p->client_connected;
@@ -459,7 +441,7 @@ and implements the following new ones.
 
 =head2 C<client_info>
 
-    my @info = $p->client_info;
+    my $info = $p->client_info;
 
 =head2 C<client_is_writing>
 
@@ -477,21 +459,9 @@ and implements the following new ones.
 
     $p = $p->client_spin;
 
-=head2 C<client_written>
-
-    $p = $p->client_written($length);
-
-=head2 C<server_accept>
-
-    $p = $p->server_accept($tx);
-
 =head2 C<server_get_chunk>
 
     my $chunk = $p->server_get_chunk;
-
-=head2 C<server_handled>
-
-    $p = $p->server_handled;
 
 =head2 C<server_is_writing>
 
@@ -512,9 +482,5 @@ and implements the following new ones.
 =head2 C<server_tx>
 
     my $tx = $p->server_tx;
-
-=head2 C<server_written>
-
-    $p = $p->server_written($bytes);
 
 =cut

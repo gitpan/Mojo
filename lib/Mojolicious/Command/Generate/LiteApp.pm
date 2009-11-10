@@ -45,18 +45,16 @@ get '/:groovy' => sub {
 shagadelic;
 <%%= '__DATA__' %%>
 
-<%%= '@@ index.html.epl' %%>
-% my $self = shift;
-% $self->stash(layout => 'funky');
+<%%= '@@ index.html.ep' %%>
+% layout 'funky';
 Yea baby!
 
-<%%= '@@ layouts/funky.html.epl' %%>
-% my $self = shift;
+<%%= '@@ layouts/funky.html.ep' %%>
 <!doctype html><html>
-    <head><title>Funky!</title></head>
-    <body>
-        <%= $self->render_inner %>
-    </body>
+  <head><title>Funky!</title></head>
+  <body>
+    <%== content %>
+  </body>
 </html>
 __END__
 =head1 NAME

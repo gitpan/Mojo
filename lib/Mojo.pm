@@ -8,6 +8,7 @@ use warnings;
 use base 'Mojo::Base';
 
 use Carp 'croak';
+use Mojo::Client;
 use Mojo::Commands;
 use Mojo::Home;
 use Mojo::Log;
@@ -22,11 +23,12 @@ __PACKAGE__->attr(
           }
     }
 );
-__PACKAGE__->attr(home => sub { Mojo::Home->new });
-__PACKAGE__->attr(log  => sub { Mojo::Log->new });
+__PACKAGE__->attr(client => sub { Mojo::Client->new });
+__PACKAGE__->attr(home   => sub { Mojo::Home->new });
+__PACKAGE__->attr(log    => sub { Mojo::Log->new });
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.991251';
+our $VERSION = '0.999901';
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -106,7 +108,7 @@ Currently there are no requirements besides Perl 5.8.1.
     |        CGI       | |      FastCGI     | |     HTTP 1.1     |
     '------------------' '------------------' '------------------'
 
-For userfriendly documentation see L<Mojo::Manual>.
+For user friendly documentation see L<Mojolicious::Book>.
 
 =head1 ATTRIBUTES
 
@@ -116,6 +118,11 @@ L<Mojo> implements the following attributes.
 
     my $cb = $mojo->build_tx_cb;
     $mojo  = $mojo->build_tx_cb(sub { ... });
+
+=head2 C<client>
+
+    my $client = $mojo->client;
+    $mojo      = $mojo->client(Mojo::Client->new);
 
 =head2 C<home>
 
@@ -179,6 +186,8 @@ In alphabetical order:
 
 Adam Kennedy
 
+Adriano Ferreira
+
 Anatoly Sharifulin
 
 Andreas Koenig
@@ -206,6 +215,8 @@ Gisle Aas
 Graham Barr
 
 James Duncan
+
+Jaroslav Muhin
 
 Jesse Vincent
 
@@ -238,6 +249,8 @@ Robert Hicks
 Shu Cho
 
 Stanis Trendelenburg
+
+Tatsuhiko Miyagawa
 
 Uwe Voelker
 

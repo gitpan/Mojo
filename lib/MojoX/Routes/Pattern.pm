@@ -9,6 +9,8 @@ use base 'Mojo::Base';
 
 use constant DEBUG => $ENV{MOJOX_ROUTES_DEBUG} || 0;
 
+use Mojo::ByteStream 'b';
+
 __PACKAGE__->attr(defaults => sub { {} });
 __PACKAGE__->attr([qw/format pattern regex/]);
 __PACKAGE__->attr(quote_end      => ')');
@@ -132,9 +134,15 @@ sub shape_match {
         # Merge captures
         my $result = {%{$self->defaults}};
         for my $symbol (@{$self->symbols}) {
+
+            # No captures
             last unless @captures;
+
+            # Decode and unescape
             my $capture = shift @captures;
-            $result->{$symbol} = $capture if $capture;
+            $result->{$symbol} =
+              b($capture)->url_unescape->decode('UTF-8')->to_string
+              if $capture;
         }
         return $result;
     }
@@ -219,11 +227,20 @@ sub _tokenize {
     my $tree  = [];
     my $state = 'text';
 
+    my $quoted = 0;
     while (length(my $char = substr $pattern, 0, 1, '')) {
+
+        # Inside a symbol?
+        my $symbol = 0;
+        $symbol = 1
+          if $state eq 'relaxed'
+              || $state eq 'symbol'
+              || $state eq 'wildcard';
 
         # Quote start
         if ($char eq $quote_start) {
-            $state = 'symbol';
+            $quoted = 1;
+            $state  = 'symbol';
             push @$tree, ['symbol', ''];
             next;
         }
@@ -236,7 +253,7 @@ sub _tokenize {
         }
 
         # Relaxed start
-        if ($char eq $relaxed_start) {
+        if ($quoted && $char eq $relaxed_start) {
 
             # Upgrade relaxed to wildcard
             if ($state eq 'symbol') {
@@ -248,7 +265,7 @@ sub _tokenize {
         }
 
         # Wildcard start
-        if ($char eq $wildcard_start) {
+        if ($quoted && $char eq $wildcard_start) {
 
             # Upgrade relaxed to wildcard
             if ($state eq 'symbol') {
@@ -261,7 +278,8 @@ sub _tokenize {
 
         # Quote end
         if ($char eq $quote_end) {
-            $state = 'text';
+            $quoted = 0;
+            $state  = 'text';
             next;
         }
 
@@ -269,18 +287,19 @@ sub _tokenize {
         if ($char eq '/') {
             push @$tree, ['slash'];
             $state = 'text';
+            next;
         }
 
         # Relaxed, symbol or wildcard
-        elsif ($state eq 'relaxed'
-            || $state eq 'symbol'
-            || $state eq 'wildcard')
-        {
+        elsif ($symbol && $char =~ /\w/) {
             $tree->[-1]->[-1] .= $char;
+            next;
         }
 
         # Text
-        elsif ($state eq 'text') {
+        else {
+
+            $state = 'text';
 
             # New text element
             unless ($tree->[-1]->[0] eq 'text') {

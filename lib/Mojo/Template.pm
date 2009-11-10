@@ -15,17 +15,17 @@ use Mojo::Template::Exception;
 
 use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
 
-__PACKAGE__->attr(code         => '');
-__PACKAGE__->attr(comment_mark => '#');
-__PACKAGE__->attr([qw/compiled namespace/]);
-__PACKAGE__->attr(encoding        => 'utf8');
-__PACKAGE__->attr(escape_mark     => '=');
-__PACKAGE__->attr(expression_mark => '=');
-__PACKAGE__->attr(line_start      => '%');
-__PACKAGE__->attr(template        => '');
-__PACKAGE__->attr(tree            => sub { [] });
-__PACKAGE__->attr(tag_start       => '<%');
-__PACKAGE__->attr(tag_end         => '%>');
+__PACKAGE__->attr([qw/auto_escape compiled namespace/]);
+__PACKAGE__->attr([qw/append code prepend/] => '');
+__PACKAGE__->attr(comment_mark              => '#');
+__PACKAGE__->attr(encoding                  => 'UTF-8');
+__PACKAGE__->attr(escape_mark               => '=');
+__PACKAGE__->attr(expression_mark           => '=');
+__PACKAGE__->attr(line_start                => '%');
+__PACKAGE__->attr(template                  => '');
+__PACKAGE__->attr(tree => sub { [] });
+__PACKAGE__->attr(tag_start => '<%');
+__PACKAGE__->attr(tag_end   => '%>');
 
 sub build {
     my $self = shift;
@@ -54,28 +54,37 @@ sub build {
             }
 
             # Code
-            if ($type eq 'code') {
-                $lines[-1] .= "$value";
-            }
+            if ($type eq 'code') { $lines[-1] .= "$value" }
 
             # Expression
-            if ($type eq 'expr') {
-                $lines[-1] .= "\$_M .= $value;";
-            }
+            if ($type eq 'expr' || $type eq 'escp') {
 
-            # Expression that needs to be escaped
-            if ($type eq 'escp') {
-                $lines[-1]
-                  .= "\$_M .= Mojo::ByteStream->new($value)->xml_escape;";
+                # Escaped
+                my $a = $self->auto_escape;
+                if (($type eq 'escp' && !$a) || ($type eq 'expr' && $a)) {
+                    $lines[-1] .= "\$_M .= escape +$value;";
+                }
+
+                # Raw
+                else { $lines[-1] .= "\$_M .= $value;" }
             }
         }
     }
 
+    # Escape helper
+    my $escape = q/no strict 'refs'; no warnings 'redefine'; sub escape; /;
+    $escape .= q/*escape = sub { Mojo::ByteStream->new($_[0])->xml_escape->/;
+    $escape .= q/to_string };/;
+    $escape .= q/use strict; use warnings;/;
+
     # Wrap
+    my $prepend   = $self->prepend;
+    my $append    = $self->append;
     my $namespace = $self->namespace || ref $self;
     $lines[0] ||= '';
-    $lines[0] = qq/package $namespace; sub { my \$_M = '';/ . $lines[0];
-    $lines[-1] .= q/return $_M; };/;
+    $lines[0] = qq/package $namespace; sub { my \$_M = ''; $escape; $prepend;/
+      . $lines[0];
+    $lines[-1] .= qq/$append; return \$_M; };/;
 
     $self->code(join "\n", @lines);
     return $self;
@@ -144,6 +153,20 @@ sub parse {
     my $escp_mark  = quotemeta $self->escape_mark;
     my $expr_mark  = quotemeta $self->expression_mark;
 
+    my $mixed_re = qr/
+        (
+        $tag_start$expr_mark$escp_mark   # Escaped expression
+        |
+        $tag_start$expr_mark             # Expression
+        |
+        $tag_start$cmnt_mark             # Comment
+        |
+        $tag_start                       # Code
+        |
+        $tag_end                         # End
+        )
+    /x;
+
     # Tokenize
     my $state                = 'text';
     my $multiline_expression = 0;
@@ -198,22 +221,7 @@ sub parse {
 
         # Mixed line
         my @token;
-        for my $token (
-            split /
-            (
-                $tag_start$expr_mark$escp_mark   # Escaped expression
-            |
-                $tag_start$expr_mark             # Expression
-            |
-                $tag_start$cmnt_mark             # Comment
-            |
-                $tag_start                       # Code
-            |
-                $tag_end                         # End
-            )
-        /x, $line
-          )
-        {
+        for my $token (split /$mixed_re/, $line) {
 
             # Garbage
             next unless $token;
@@ -467,6 +475,16 @@ build a wrapper around it.
 
 L<Mojo::Template> implements the following attributes.
 
+=head2 C<auto_escape>
+
+    my $auto_escape = $mt->auto_escape;
+    $mt             = $mt->auto_escape(1);
+
+=head2 C<append>
+
+    my $code = $mt->append;
+    $mt      = $mt->append('warn "Processed template"');
+
 =head2 C<code>
 
     my $code = $mt->code;
@@ -480,7 +498,7 @@ L<Mojo::Template> implements the following attributes.
 =head2 C<encoding>
 
     my $encoding = $mt->encoding;
-    $mt          = $mt->encoding('utf8');
+    $mt          = $mt->encoding('UTF-8');
 
 =head2 C<escape_mark>
 
@@ -501,6 +519,11 @@ L<Mojo::Template> implements the following attributes.
 
     my $namespace = $mt->namespace;
     $mt           = $mt->namespace('main');
+
+=head2 C<prepend>
+
+    my $code = $mt->prepend;
+    $mt      = $mt->prepend('my $self = shift;');
 
 =head2 C<template>
 

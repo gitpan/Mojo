@@ -370,7 +370,15 @@ sub decode {
     # Shortcut
     return $self unless $encoding;
 
-    $self->{bytestream} = Encode::decode($encoding, $self->{bytestream});
+    # Try decoding
+    eval {
+        $self->{bytestream} =
+          Encode::decode($encoding, $self->{bytestream}, 1);
+    };
+
+    # Failed
+    $self->{bytestream} = '' if $@;
+
     return $self;
 }
 
@@ -419,8 +427,7 @@ sub html_unescape {
         ;
     /_unescape($1, $2, $3)/gex;
 
-    # utf8
-    return $self->decode('utf8');
+    return $self;
 }
 
 sub md5_sum {
@@ -503,6 +510,9 @@ sub url_unescape {
 sub xml_escape {
     my $self = shift;
 
+    # Character semantics
+    no bytes;
+
     # Replace "&", "<", ">", """ and "'"
     for ($self->{bytestream}) {
         s/&/&amp;/g;
@@ -559,8 +569,8 @@ Mojo::ByteStream - ByteStream
     $stream->decamelize;
     $stream->b64_encode;
     $stream->b64_decode;
-    $stream->encode('utf8');
-    $stream->decode('utf8');
+    $stream->encode('UTF-8');
+    $stream->decode('UTF-8');
     $stream->html_escape;
     $stream->html_unescape;
     $stream->md5_sum;
@@ -580,7 +590,7 @@ Mojo::ByteStream - ByteStream
 
     # Chained
     my $stream = Mojo::ByteStream->new('foo bar baz')->quote;
-    $stream = $stream->unquote->encode('utf8)->b64_encode;
+    $stream = $stream->unquote->encode('UTF-8)->b64_encode;
     print "$stream";
 
     # Constructor alias

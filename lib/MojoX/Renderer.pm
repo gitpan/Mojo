@@ -8,17 +8,39 @@ use warnings;
 use base 'Mojo::Base';
 
 use File::Spec;
+use Mojo::JSON;
 use MojoX::Types;
 
 __PACKAGE__->attr(default_format => 'html');
 __PACKAGE__->attr('default_handler');
-__PACKAGE__->attr(handler => sub { {} });
-__PACKAGE__->attr(layout_prefix => 'layouts');
-__PACKAGE__->attr(root          => '/');
-__PACKAGE__->attr(types         => sub { MojoX::Types->new });
+__PACKAGE__->attr(default_status => 200);
+__PACKAGE__->attr(handler        => sub { {} });
+__PACKAGE__->attr(layout_prefix  => 'layouts');
+__PACKAGE__->attr(root           => '/');
+__PACKAGE__->attr(types          => sub { MojoX::Types->new });
 
 # This is not how Xmas is supposed to be.
 # In my day Xmas was about bringing people together, not blowing them apart.
+sub new {
+    my $self = shift->SUPER::new(@_);
+
+    # JSON
+    $self->add_handler(
+        json => sub {
+            my ($r, $c, $output) = @_;
+            $$output = Mojo::JSON->new->encode(delete $c->stash->{json});
+        }
+    );
+
+    # Text
+    $self->add_handler(
+        text => sub {
+            my ($r, $c, $output) = @_;
+            $$output = delete $c->stash->{text};
+        }
+    );
+}
+
 sub add_handler {
     my $self = shift;
 
@@ -54,9 +76,26 @@ sub render {
     my $output;
 
     # Text
-    if (my $text = delete $c->stash->{text}) {
-        $output = $text;
-        $c->stash->{inner_template} = $output if $c->stash->{layout};
+    if ($c->stash->{text}) {
+
+        # Render
+        $self->handler->{text}->($self, $c, \$output);
+
+        # Layout?
+        $c->stash->{inner_template} = $output
+          if $c->stash->{layout} && !$partial;
+    }
+
+    # JSON
+    elsif ($c->stash->{json}) {
+
+        # Render
+        $self->handler->{json}->($self, $c, \$output);
+        $format = 'json';
+
+        # Layout?
+        $c->stash->{inner_template} = $output
+          if $c->stash->{layout} && !$partial;
     }
 
     # Template or templateless handler
@@ -66,11 +105,12 @@ sub render {
         return unless $self->_render_template($c, \$output, $options);
 
         # Layout?
-        $c->stash->{inner_template} = $output if $c->stash->{layout};
+        $c->stash->{inner_template} = $output
+          if $c->stash->{layout} && !$partial;
     }
 
     # Layout
-    if (my $layout = delete $c->stash->{layout}) {
+    if (!$partial && (my $layout = delete $c->stash->{layout})) {
 
         # Handler
         $handler = $c->stash->{handler} || $self->default_handler;
@@ -92,7 +132,8 @@ sub render {
 
     # Response
     my $res = $c->res;
-    $res->code(200) unless $res->code;
+    $res->code($c->stash('status') || $self->default_status)
+      unless $res->code;
     $res->body($output) unless $res->body;
 
     # Type
@@ -172,6 +213,11 @@ L<MojoX::Types> implements the follwing attributes.
     my $default = $renderer->default_handler;
     $renderer   = $renderer->default_handler('epl');
 
+=head2 C<default_status>
+
+    my $default = $renderer->default_status;
+    $renderer   = $renderer->default_status(404);
+
 =head2 C<handler>
 
     my $handler = $renderer->handler;
@@ -196,6 +242,10 @@ L<MojoX::Types> implements the follwing attributes.
 
 L<MojoX::Types> inherits all methods from L<Mojo::Base> and implements the
 follwing the ones.
+
+=head2 C<new>
+
+    my $renderer = MojoX::Renderer->new;
 
 =head2 C<add_handler>
 

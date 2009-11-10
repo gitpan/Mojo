@@ -5,7 +5,7 @@ package Mojo::Asset::File;
 use strict;
 use warnings;
 
-use base 'Mojo::Base';
+use base 'Mojo::Asset';
 use bytes;
 
 # We can't use File::Temp because there is no seek support in the version
@@ -74,7 +74,7 @@ sub add_chunk {
     $self->handle->seek(0, SEEK_END);
 
     # Store
-    $chunk ||= '';
+    $chunk = '' unless defined $chunk;
     $self->handle->syswrite($chunk, length $chunk);
 
     return $self;
@@ -92,12 +92,13 @@ sub contains {
     my $offset = $read;
 
     # Moving window search
-    while ($offset < $self->size) {
+    while ($offset <= $self->size) {
         $read = $self->handle->sysread($buffer, length($bytestream));
         $offset += $read;
         $window .= $buffer;
         my $pos = index $window, $bytestream;
         return $pos if $pos >= 0;
+        return if $read == 0;
         substr $window, 0, $read, '';
     }
 

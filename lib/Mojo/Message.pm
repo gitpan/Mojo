@@ -42,27 +42,36 @@ sub at_least_version {
 }
 
 sub body {
-    my ($self, $content) = @_;
+    my $self = shift;
 
-    # Plain old content
-    unless ($self->is_multipart) {
+    # Downgrade multipart content
+    $self->content(Mojo::Content::Single->new)
+      if $self->content->isa('Mojo::Content::MultiPart');
 
-        # Callback
-        if ($content && ref $content eq 'CODE') {
-            $self->body_cb($content);
-            return $content;
-        }
-
-        # Get/Set content
-        elsif ($content) {
-            $self->content->asset(Mojo::Asset::Memory->new);
-            $self->content->asset->add_chunk($content);
-        }
-        return $self->content->asset->slurp;
+    # Get
+    unless (@_) {
+        return $self->body_cb
+          ? $self->body_cb
+          : return $self->content->asset->slurp;
     }
 
-    $self->content($content);
-    return $self->content;
+    # New content
+    my $content = shift;
+
+    # Cleanup
+    $self->body_cb(undef);
+    $self->content->asset(Mojo::Asset::Memory->new);
+
+    # Shortcut
+    return $self unless defined $content;
+
+    # Callback
+    if (ref $content eq 'CODE') { $self->body_cb($content) }
+
+    # Set text content
+    elsif (length $content) { $self->content->asset->add_chunk($content) }
+
+    return $self;
 }
 
 sub body_cb { shift->content->body_cb(@_) }
@@ -74,20 +83,21 @@ sub body_params {
     return $self->_body_params if $self->_body_params;
 
     my $params = Mojo::Parameters->new;
+    my $type = $self->headers->content_type || '';
+
+    # Charset
+    $type =~ /charset=\"?(\S+)\"?/;
+    $params->charset($1) if $1;
 
     # "x-application-urlencoded" and "application/x-www-form-urlencoded"
-    my $content_type = $self->headers->content_type || '';
-    if ($content_type
-        =~ /(?:x-application|application\/x-www-form)-urlencoded/i)
-    {
+    if ($type =~ /(?:x-application|application\/x-www-form)-urlencoded/i) {
 
         # Parse
-        my $raw = $self->content->asset->slurp;
-        $params->parse($raw);
+        $params->parse($self->content->asset->slurp);
     }
 
     # "multipart/formdata"
-    elsif ($content_type =~ /multipart\/form-data/i) {
+    elsif ($type =~ /multipart\/form-data/i) {
         my $formdata = $self->_parse_formdata;
 
         # Formdata
@@ -96,6 +106,7 @@ sub body_params {
             my $filename = $data->[1];
             my $part     = $data->[2];
 
+            # Form field
             $params->append($name, $part->asset->slurp) unless $filename;
         }
     }
@@ -202,7 +213,10 @@ sub cookie {
 sub fix_headers {
     my $self = shift;
 
-    # Content-Length header is required in HTTP 1.0 messages
+    # Content-Length header is required in HTTP 1.0 (and above) messages if
+    # there's a body, sadly many clients are expecting broken server behavior
+    # if the Content-Length header is missing, so we are defaulting to
+    # "Content-Length: 0" which has proven to just work in the real world
     if ($self->at_least_version('1.0') && !$self->is_chunked) {
         $self->headers->content_length($self->body_size)
           unless $self->headers->content_length;
@@ -267,13 +281,13 @@ sub parse {
     my ($self, $chunk) = @_;
 
     # Buffer
-    $self->buffer->add_chunk($chunk) if $chunk;
+    $self->buffer->add_chunk($chunk) if defined $chunk;
 
     return $self->_parse(0);
 }
 
 sub parse_until_body {
-    my ($self, $chunk) = @);
+    my ($self, $chunk) = @_;
 
     # Buffer
     $self->buffer->add_chunk($chunk);
@@ -282,43 +296,6 @@ sub parse_until_body {
 }
 
 sub progress_cb { shift->content->progress_cb(@_) }
-
-sub _parse {
-    my $self = shift;
-    my $until_body = @_ ? shift : 0;
-
-    # Progress
-    $self->progress_cb->($self) if $self->progress_cb;
-
-    # Content
-    if ($self->is_state(qw/content done done_with_leftovers/)) {
-        my $content = $self->content;
-
-        # HTTP 0.9 has no headers
-        $content->state('body') if $self->version eq '0.9';
-
-        # Parse
-        $content->filter_buffer($self->buffer);
-
-        # Until body
-        if ($until_body) { $self->content($content->parse_until_body) }
-
-        # Whole message
-        else { $self->content($content->parse) }
-
-        # HTTP 0.9 has no defined length
-        $content->state('done') if $self->version eq '0.9';
-    }
-
-    # Done
-    $self->done if $self->content->is_done;
-
-    # Done with leftovers, maybe pipelined
-    $self->state('done_with_leftovers')
-      if $self->content->is_state('done_with_leftovers');
-
-    return $self;
-}
 
 sub start_line_size { length shift->build_start_line }
 
@@ -408,6 +385,43 @@ sub version {
 
 sub _build_start_line {
     croak 'Method "_build_start_line" not implemented by subclass';
+}
+
+sub _parse {
+    my $self = shift;
+    my $until_body = @_ ? shift : 0;
+
+    # Progress
+    $self->progress_cb->($self) if $self->progress_cb;
+
+    # Content
+    if ($self->is_state(qw/content done done_with_leftovers/)) {
+        my $content = $self->content;
+
+        # HTTP 0.9 has no headers
+        $content->state('body') if $self->version eq '0.9';
+
+        # Parse
+        $content->filter_buffer($self->buffer);
+
+        # Until body
+        if ($until_body) { $self->content($content->parse_until_body) }
+
+        # Whole message
+        else { $self->content($content->parse) }
+
+        # HTTP 0.9 has no defined length
+        $content->state('done') if $self->version eq '0.9';
+    }
+
+    # Done
+    $self->done if $self->content->is_done;
+
+    # Done with leftovers, maybe pipelined
+    $self->state('done_with_leftovers')
+      if $self->content->is_state('done_with_leftovers');
+
+    return $self;
 }
 
 sub _parse_formdata {

@@ -5,10 +5,12 @@
 use strict;
 use warnings;
 
+use utf8;
+
 # Homer, we're going to ask you a few simple yes or no questions.
 # Do you understand?
 # Yes. *lie dectector blows up*
-use Test::More tests => 30;
+use Test::More tests => 33;
 
 use_ok('Mojo::ByteStream', 'b');
 
@@ -33,11 +35,11 @@ $stream = b("Zm9vYmFyJCVeJjMyMTc=\n");
 is($stream->b64_decode, 'foobar$%^&3217');
 
 # utf8 b64_encode
-$stream = b("foo\x{df}\x{0100}bar%23\x{263a}")->encode('utf8')->b64_encode;
+$stream = b("foo\x{df}\x{0100}bar%23\x{263a}")->encode('UTF-8')->b64_encode;
 is("$stream", "Zm9vw5/EgGJhciUyM+KYug==\n");
 
 # utf8 b64_decode
-$stream = b("Zm9vw5/EgGJhciUyM+KYug==\n")->b64_decode->decode('utf8');
+$stream = b("Zm9vw5/EgGJhciUyM+KYug==\n")->b64_decode->decode('UTF-8');
 is("$stream", "foo\x{df}\x{0100}bar%23\x{263a}");
 
 # url_escape
@@ -49,11 +51,11 @@ $stream = b('business%3B23');
 is($stream->url_unescape, 'business;23');
 
 # utf8 url_escape
-$stream = b("foo\x{df}\x{0100}bar\x{263a}")->encode('utf8')->url_escape;
+$stream = b("foo\x{df}\x{0100}bar\x{263a}")->encode('UTF-8')->url_escape;
 is("$stream", 'foo%C3%9F%C4%80bar%E2%98%BA');
 
 # utf8 url_unescape
-$stream = b('foo%C3%9F%C4%80bar%E2%98%BA')->url_unescape->decode('utf8');
+$stream = b('foo%C3%9F%C4%80bar%E2%98%BA')->url_unescape->decode('UTF-8');
 is("$stream", "foo\x{df}\x{0100}bar\x{263a}");
 
 # url_sanitize
@@ -110,7 +112,8 @@ $stream = b("foobar<baz>&\"\x{152}")->html_escape;
 is("$stream", 'foobar&lt;baz&gt;&amp;&quot;&OElig;');
 
 # utf8 html_unescape
-$stream = b('foobar&lt;baz&gt;&#x26;&#34;&OElig;')->html_unescape;
+$stream =
+  b('foobar&lt;baz&gt;&#x26;&#34;&OElig;')->decode('UTF-8')->html_unescape;
 is("$stream", "foobar<baz>&\"\x{152}");
 
 # html_escape (path)
@@ -121,3 +124,15 @@ is("$stream", '/usr/local/lib/perl5/site_perl/5.10.0/Mojo/ByteStream.pm');
 # xml_escape
 $stream = b(qq/la<f>\nbar"baz"'yada\n'&lt;la/)->xml_escape;
 is("$stream", "la&lt;f&gt;\nbar&quot;baz&quot;&apos;yada\n&apos;&amp;lt;la");
+
+# utf8 xml_escape with nothing to escape
+$stream = b('привет')->xml_escape;
+is("$stream", 'привет');
+
+# utf8 xml_escape
+$stream = b('привет<foo>')->xml_escape;
+is("$stream", 'привет&lt;foo&gt;');
+
+# Decode invalid utf8
+$stream = b("\x{1000}")->decode('UTF-8');
+is("$stream", '');

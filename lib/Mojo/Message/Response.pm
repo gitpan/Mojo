@@ -10,8 +10,7 @@ use base 'Mojo::Message';
 use Mojo::Cookie::Response;
 use Mojo::Date;
 
-__PACKAGE__->attr(code => sub {200});
-__PACKAGE__->attr('message');
+__PACKAGE__->attr([qw/code message/]);
 
 # Umarked codes are from RFC 2616 (mostly taken from LWP)
 my %MESSAGES = (
@@ -121,7 +120,7 @@ sub parse {
     my ($self, $chunk) = @_;
 
     # Buffer
-    $self->buffer->add_chunk($chunk) if $chunk;
+    $self->buffer->add_chunk($chunk) if defined $chunk;
 
     return $self->_parse(0);
 }

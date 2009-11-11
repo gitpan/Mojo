@@ -122,6 +122,7 @@ t/mojo/stateful.t
 t/mojo/template.t
 t/mojo/url.t
 t/mojolicious/app.t
+t/mojolicious/app_production.t
 t/mojolicious/lib/MojoliciousTest.pm
 t/mojolicious/lib/MojoliciousTest/Foo.pm
 t/mojolicious/lib/MojoliciousTest/Foo/Bar.pm

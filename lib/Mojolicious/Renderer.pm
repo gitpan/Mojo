@@ -7,6 +7,8 @@ use warnings;
 
 use base 'MojoX::Renderer';
 
+require Data::Dumper;
+
 use File::Spec;
 use Mojo::ByteStream 'b';
 use Mojo::Command;
@@ -28,8 +30,8 @@ sub new {
             my ($r, $c, $output, $options) = @_;
 
             # Template
-            my $t     = $r->template_name($options);
-            my $path  = $r->template_path($options);
+            return unless my $t    = $r->template_name($options);
+            return unless my $path = $r->template_path($options);
             my $cache = $options->{cache} || $path;
 
             # Check cache
@@ -43,6 +45,9 @@ sub new {
 
                 # Initialize
                 $mt ||= Mojo::Template->new;
+
+                # Encoding
+                $mt->encoding($self->encoding) if $self->encoding;
 
                 # Class
                 my $class =
@@ -155,6 +160,14 @@ sub new {
 
     # Add "content" helper
     $self->add_helper(content => sub { shift->render_inner(@_) });
+
+    # Add "dumper" helper
+    $self->add_helper(
+        dumper => sub {
+            shift;
+            Data::Dumper->new([@_])->Maxdepth(2)->Indent(1)->Terse(1)->Dump;
+        }
+    );
 
     # Add "include" helper
     $self->add_helper(include => sub { shift->render_partial(@_) });

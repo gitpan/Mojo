@@ -7,7 +7,7 @@ use warnings;
 
 use utf8;
 
-use Test::More tests => 117;
+use Test::More tests => 136;
 
 # Wait you're the only friend I have...
 # You really want a robot for a friend?
@@ -130,6 +130,33 @@ get '/redirect_named' => sub {
     shift->redirect_to('index')->render_text('Redirecting!');
 };
 
+# GET /koi8-r
+app->types->type('koi8-r' => 'text/html; charset=koi8-r');
+get '/koi8-r' => sub {
+    app->renderer->encoding('koi8-r');
+    shift->render('encoding', format => 'koi8-r', handler => 'ep');
+    app->renderer->encoding(undef);
+};
+
+ladder sub {
+    my $self = shift;
+    return unless $self->req->headers->header('X-Bender');
+    $self->res->headers->header('X-Ladder' => 23);
+    return 1;
+};
+
+# GET /with_ladder
+get '/with_ladder' => sub {
+    my $self = shift;
+    $self->render_text('Ladders are cool!');
+};
+
+# GET /with_ladder_too
+get '/with_ladder_too' => sub {
+    my $self = shift;
+    $self->render_text('Ladders are cool too!');
+};
+
 # Oh Fry, I love you more than the moon, and the stars,
 # and the POETIC IMAGE NUMBER 137 NOT FOUND
 my $app = Mojolicious::Lite->new;
@@ -143,7 +170,7 @@ $client->get(
         is($tx->res->code,                            200);
         is($tx->res->headers->server,                 'Mojo (Perl)');
         is($tx->res->headers->header('X-Powered-By'), 'Mojo (Perl)');
-        is($tx->res->body, "layouted Hello\nthere!\n\n\n");
+        is($tx->res->body, "layouted Hello\n[\n  1,\n  2\n]\nthere!\n\n\n");
     }
 )->process;
 
@@ -462,13 +489,63 @@ $client->get(
     }
 )->process;
 
+# GET /koi8-r
+$client->get(
+    '/koi8-r' => sub {
+        my ($self, $tx) = @_;
+        is($tx->res->code,                            200);
+        is($tx->res->headers->server,                 'Mojo (Perl)');
+        is($tx->res->headers->header('X-Powered-By'), 'Mojo (Perl)');
+        is($tx->res->headers->content_type, 'text/html; charset=koi8-r');
+        is(b($tx->res->body)->decode('koi8-r'),
+            "Этот человек наполняет меня надеждой."
+              . " Ну, и некоторыми другими глубокими и приводящими в"
+              . " замешательство эмоциями.\n");
+    }
+)->process;
+
+# GET /with_ladder
+$client->get(
+    '/with_ladder' => ('X-Bender' => 'Rodriguez') => sub {
+        my ($self, $tx) = @_;
+        is($tx->res->code,                            200);
+        is($tx->res->headers->server,                 'Mojo (Perl)');
+        is($tx->res->headers->header('X-Powered-By'), 'Mojo (Perl)');
+        is($tx->res->headers->header('X-Ladder'),     '23');
+        is($tx->res->body,                            'Ladders are cool!');
+    }
+)->process;
+
+# GET /with_ladder_too
+$client->get(
+    '/with_ladder_too' => ('X-Bender' => 'Rodriguez') => sub {
+        my ($self, $tx) = @_;
+        is($tx->res->code,                            200);
+        is($tx->res->headers->server,                 'Mojo (Perl)');
+        is($tx->res->headers->header('X-Powered-By'), 'Mojo (Perl)');
+        is($tx->res->headers->header('X-Ladder'),     '23');
+        is($tx->res->body, 'Ladders are cool too!');
+    }
+)->process;
+
+# GET /with_ladder_too
+$client->get(
+    '/with_ladder_too' => sub {
+        my ($self, $tx) = @_;
+        is($tx->res->code,                            404);
+        is($tx->res->headers->server,                 'Mojo (Perl)');
+        is($tx->res->headers->header('X-Powered-By'), 'Mojo (Perl)');
+        like($tx->res->body, qr/Oops!/);
+    }
+)->process;
+
 __DATA__
 @@ outerlayout.html.ep
 Hello
 <%== include 'outermenu' %>
 
 @@ outermenu.html.ep
-there!
+<%= dumper [1, 2] %>there!
 
 @@ not_found.html.epl
 Oops!

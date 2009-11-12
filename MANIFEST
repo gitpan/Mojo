@@ -122,7 +122,6 @@ t/mojo/stateful.t
 t/mojo/template.t
 t/mojo/url.t
 t/mojolicious/app.t
-t/mojolicious/app_production.t
 t/mojolicious/lib/MojoliciousTest.pm
 t/mojolicious/lib/MojoliciousTest/Foo.pm
 t/mojolicious/lib/MojoliciousTest/Foo/Bar.pm
@@ -131,10 +130,12 @@ t/mojolicious/lib/MojoliciousTest2/Foo.pm
 t/mojolicious/lib/MojoliciousTestController.pm
 t/mojolicious/lib/SingleFileTestApp.pm
 t/mojolicious/lite_app.t
+t/mojolicious/production_app.t
 t/mojolicious/public/hello.txt
 t/mojolicious/public_dev/hello.txt
 t/mojolicious/secret.txt
 t/mojolicious/templates/23.html.epl
+t/mojolicious/templates/encoding.koi8-r.ep
 t/mojolicious/templates/exception.html.epl
 t/mojolicious/templates/foo/bar/index.html.epl
 t/mojolicious/templates/foo/index.html.xpl

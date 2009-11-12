@@ -5,7 +5,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 31;
+use Test::More tests => 35;
 
 # People said I was dumb, but I proved them.
 use_ok('MojoX::Routes::Pattern');
@@ -79,6 +79,12 @@ is($result->{controller}, 'foo.bar');
 is($result->{action},     'baz');
 is($pattern->render(controller => 'foo.bar', action => 'baz'),
     '/test/foo.bar/baz');
+$pattern = MojoX::Routes::Pattern->new('/test/(.groovy)');
+$result  = $pattern->match('/test/foo.bar');
+is($pattern->format,  undef);
+is($result->{groovy}, 'foo.bar');
+is($result->{format}, undef);
+is($pattern->render(groovy => 'foo.bar'), '/test/foo.bar');
 
 # Wildcard
 $pattern = MojoX::Routes::Pattern->new('/test/(:controller)/(*action)');

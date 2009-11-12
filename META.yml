@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Mojo
-version:            0.999903
+version:            0.999904
 abstract:           Web Framework
 author:
     - Sebastian Riedel <sri@cpan.org>

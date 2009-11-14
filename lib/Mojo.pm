@@ -28,7 +28,7 @@ __PACKAGE__->attr(home   => sub { Mojo::Home->new });
 __PACKAGE__->attr(log    => sub { Mojo::Log->new });
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.999908';
+our $VERSION = '0.999909';
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -108,7 +108,8 @@ Currently there are no requirements besides Perl 5.8.1.
     |        CGI       | |      FastCGI     | |     HTTP 1.1     |
     '------------------' '------------------' '------------------'
 
-For user friendly documentation see L<Mojolicious::Book>.
+For user friendly documentation see L<Mojolicious::Book> and
+L<Mojolicious::Lite>.
 
 =head1 ATTRIBUTES
 

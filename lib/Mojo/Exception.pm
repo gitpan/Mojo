@@ -29,10 +29,19 @@ sub new {
         push @{$self->stack}, [$p, $f, $l];
     }
 
-    # Context
-    if ($self->message =~ /at\s+(.+)\s+line\s+(\d+)/) {
-        my $file = $1;
-        my $line = $2;
+    # Trace name and line
+    my $message = $self->message;
+    my @trace;
+    while ($message =~ /at\s+(.+)\s+line\s+(\d+)/g) {
+        push @trace, {file => $1, line => $2};
+    }
+
+    # Frames
+    foreach my $frame (reverse @trace) {
+
+        # Frame
+        my $file = $frame->{file};
+        my $line = $frame->{line};
 
         # Readable?
         if (-r $file) {
@@ -43,6 +52,9 @@ sub new {
 
             # Line
             $self->parse_context(\@lines, $line);
+
+            # Done
+            last;
         }
     }
 

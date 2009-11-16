@@ -106,6 +106,7 @@ t/mojo/headers.t
 t/mojo/home.t
 t/mojo/json.t
 t/mojo/lib/LoaderException.pm
+t/mojo/lib/LoaderException2.pm
 t/mojo/lib/LoaderTest/A.pm
 t/mojo/lib/LoaderTest/B.pm
 t/mojo/lib/LoaderTest/C.pm

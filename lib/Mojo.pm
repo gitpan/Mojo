@@ -28,7 +28,7 @@ __PACKAGE__->attr(home   => sub { Mojo::Home->new });
 __PACKAGE__->attr(log    => sub { Mojo::Log->new });
 
 # Oh, so they have internet on computers now!
-our $VERSION = '0.999909';
+our $VERSION = '0.999910';
 
 sub new {
     my $self = shift->SUPER::new(@_);
@@ -246,6 +246,8 @@ Pascal Gaudette
 Pedro Melo
 
 Pierre-Yves Ritschard
+
+Rafal Pocztarski
 
 Randal Schwartz
 

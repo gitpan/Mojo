@@ -8,6 +8,7 @@ use warnings;
 use base 'Mojo::Base';
 use bytes;
 
+use Mojo::CookieJar;
 use Mojo::IOLoop;
 use Mojo::Server;
 use Mojo::Transaction::Pipeline;
@@ -17,8 +18,10 @@ use Socket;
 
 __PACKAGE__->attr([qw/app default_cb/]);
 __PACKAGE__->attr([qw/continue_timeout max_keep_alive_connections/] => 5);
-__PACKAGE__->attr(ioloop => sub { Mojo::IOLoop->new });
+__PACKAGE__->attr(cookie_jar => sub { Mojo::CookieJar->new });
+__PACKAGE__->attr(ioloop     => sub { Mojo::IOLoop->new });
 __PACKAGE__->attr(keep_alive_timeout => 15);
+__PACKAGE__->attr(max_redirects      => 0);
 
 __PACKAGE__->attr([qw/_app_queue _cache/] => sub { [] });
 __PACKAGE__->attr(_connections            => sub { {} });
@@ -103,7 +106,7 @@ sub _app_process {
     while (my $queued = shift @{$self->_app_queue}) {
 
         # Transaction
-        my $client = $queued->[0];
+        my $client = $queued->{tx};
 
         # App
         my $app = $self->app;
@@ -157,11 +160,35 @@ sub _app_process {
         # Spin
         while (1) { last if $self->_app_spin($client, $server, $daemon) }
 
-        # Callback
-        my $cb = $queued->[1] || $self->default_cb;
+        # Cookies to the jar
+        $self->_store_cookies($client);
 
-        # Execute callback
-        $self->$cb($client) if $cb;
+        # Redirect?
+        my $r = $queued->{redirects} || 0;
+        my $max = $self->max_redirects;
+        if ($r < $max && (my $tx = $self->_redirect($client))) {
+
+            # Queue redirected request
+            my $h = $queued->{history} || [];
+            push @$h, $client;
+            my $new = {
+                cb        => $queued->{cb},
+                history   => $h,
+                redirects => $r + 1,
+                tx        => $tx
+            };
+            push @{$self->_app_queue}, $new;
+        }
+
+        # Callback
+        else {
+
+            # Get callback
+            my $cb = $queued->{cb} || $self->default_cb;
+
+            # Execute callback
+            $self->$cb($client, $queued->{history}) if $cb;
+        }
     }
 
     return $self;
@@ -334,30 +361,95 @@ sub _error {
     $self->_finish($id);
 }
 
+sub _fetch_cookies {
+    my ($self, $tx) = @_;
+
+    # Shortcut
+    return unless $self->cookie_jar;
+
+    # Pipeline
+    if ($tx->is_pipeline) {
+        $_->req->cookies($self->cookie_jar->find($_->req->url))
+          for @{$tx->active};
+    }
+
+    # Single
+    else { $tx->req->cookies($self->cookie_jar->find($tx->req->url)) }
+}
+
 sub _finish {
     my ($self, $id) = @_;
 
-    # Transaction
-    my $tx = $self->_connections->{$id}->{tx};
+    # Connection
+    my $c = $self->_connections->{$id};
 
-    # Get callback
-    my $cb = $self->_connections->{$id}->{cb} || $self->default_cb;
+    # Transaction
+    my $tx = $c->{tx};
+
+    # Redirects
+    my $r = $c->{redirects} || 0;
+
+    # History
+    my $h = $c->{history} || [];
+
+    # Drop old connection so we can reuse it
+    $self->_drop($id);
 
     # Transaction still in progress
     if ($tx) {
 
-        # Callback
-        $self->$cb($tx) if $cb && $tx;
+        # Cookies to the jar
+        $self->_store_cookies($tx);
 
         # Counter
-        $self->_queued($self->_queued - 1) if $tx;
-    }
+        $self->_queued($self->_queued - 1);
 
-    # Drop
-    $self->_drop($id);
+        # Redirect?
+        my $max = $self->max_redirects;
+        if ($r < $max && (my $new = $self->_redirect($tx))) {
+
+            # Queue redirected request
+            my $nid = $self->_queue($new, $c->{cb});
+
+            # Create new conenction
+            my $nc = $self->_connections->{$nid};
+            push @$h, $tx;
+            $nc->{history}   = $h;
+            $nc->{redirects} = $r + 1;
+
+            # Done
+            return;
+        }
+
+        # Callback
+        else {
+
+            # Get callback
+            my $cb = $c->{cb} || $self->default_cb;
+
+            # Callback
+            $self->$cb($tx, $c->{history}) if $cb;
+        }
+    }
 
     # Stop ioloop
     $self->ioloop->stop if $self->_finite && !$self->_queued;
+}
+
+sub _fix_cookies {
+    my ($self, $tx, @cookies) = @_;
+
+    # Fix
+    for my $cookie (@cookies) {
+
+        # Domain
+        $cookie->domain($tx->req->url->host) unless $cookie->domain;
+
+        # Path
+        $cookie->path($tx->req->url->path) unless $cookie->path;
+    }
+
+    return @cookies;
 }
 
 sub _hup {
@@ -377,8 +469,13 @@ sub _hup {
 sub _queue {
     my ($self, $tx, $cb) = @_;
 
+    # Cookies from the jar
+    $self->_fetch_cookies($tx);
+
     # Add to app queue
-    push @{$self->_app_queue}, [$tx, $cb] and return if $self->app;
+    push @{$self->_app_queue}, {cb => $cb, redirects => 0, tx => $tx}
+      and return
+      if $self->app;
 
     # Info
     my $info   = $tx->client_info;
@@ -447,6 +544,8 @@ sub _queue {
 
     # Counter
     $self->_queued($self->_queued + 1);
+
+    return $id;
 }
 
 sub _read {
@@ -464,6 +563,47 @@ sub _read {
 
     # Corrupted connection
     else { $self->_drop($id) }
+}
+
+sub _redirect {
+    my ($self, $tx) = @_;
+
+    # Code
+    return unless $tx->res->is_status_class('300');
+    return if $tx->res->code == 305;
+
+    # Location
+    return unless my $location = $tx->res->headers->location;
+
+    # Method
+    my $method = $tx->req->method;
+    $method = 'GET' unless $method =~ /^GET|HEAD$/i;
+
+    # New transaction
+    my $new = Mojo::Transaction::Single->new;
+    $new->req->method($method);
+    $new->req->url->parse($location);
+
+    return $new;
+}
+
+sub _store_cookies {
+    my ($self, $tx) = @_;
+
+    # Shortcut
+    return unless $self->cookie_jar;
+
+    # Pipeline
+    if ($tx->is_pipeline) {
+        $self->cookie_jar->add($self->_fix_cookies($_, @{$_->res->cookies}))
+          for @{$tx->finished};
+    }
+
+    # Single
+    else {
+        $self->cookie_jar->add(
+            $self->_fix_cookies($tx, @{$tx->res->cookies}));
+    }
 }
 
 sub _withdraw {
@@ -544,6 +684,11 @@ L<Mojo::Client> implements the following attributes.
     my $timeout = $client->continue_timeout;
     $client     = $client->continue_timeout(5);
 
+=head2 C<cookie_jar>
+
+    my $cookie_jar = $client->cookie_jar;
+    $client        = $client->cookie_jar(Mojo::CookieJar->new);
+
 =head2 C<default_cb>
 
     my $cb  = $client->default_cb;
@@ -563,6 +708,11 @@ L<Mojo::Client> implements the following attributes.
 
     my $max_keep_alive_connections = $client->max_keep_alive_connections;
     $client                        = $client->max_keep_alive_connections(5);
+
+=head2 C<max_redirects>
+
+    my $max_redirects = $client->max_redirects;
+    $client           = $client->max_redirects(3);
 
 =head1 METHODS
 

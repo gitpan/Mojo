@@ -7,6 +7,7 @@ use warnings;
 
 use base 'MojoX::Dispatcher::Routes::Controller';
 
+use Mojo::ByteStream;
 use Mojo::URL;
 
 # Space: It seems to go on and on forever...
@@ -81,7 +82,20 @@ sub render {
     return $self->app->renderer->render($self);
 }
 
-sub render_inner { delete shift->stash->{inner_template} }
+sub render_inner {
+    my ($self, $name, $content) = @_;
+
+    # Initialize
+    $self->stash->{content} ||= {};
+    $name ||= 'content';
+
+    # Set
+    $self->stash->{content}->{$name} ||= Mojo::ByteStream->new("$content")
+      if $content;
+
+    # Get
+    return $self->stash->{content}->{$name};
+}
 
 sub render_json {
     my $self = shift;
@@ -92,7 +106,7 @@ sub render_json {
 sub render_partial {
     my $self = shift;
     local $self->stash->{partial} = 1;
-    return $self->render(@_);
+    return Mojo::ByteStream->new($self->render(@_));
 }
 
 sub render_text {
@@ -186,6 +200,8 @@ ones.
 =head2 C<render_inner>
 
     my $output = $c->render_inner;
+    my $output = $c->render_inner('content');
+    my $output = $c->render_inner(content => 'Hello world!');
 
 =head2 C<render_json>
 

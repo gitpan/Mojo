@@ -12,7 +12,8 @@ use FindBin;
 use IO::Socket::INET;
 use Mojo::Command;
 use Mojo::Home;
-use Test::Builder;
+
+require Test::More;
 
 use constant DEBUG => $ENV{MOJO_SERVER_DEBUG} || 0;
 
@@ -21,7 +22,6 @@ __PACKAGE__->attr(executable => 'mojo');
 __PACKAGE__->attr(home       => sub { Mojo::Home->new });
 __PACKAGE__->attr(timeout    => 5);
 
-__PACKAGE__->attr(_builder => sub { Test::Builder->new });
 __PACKAGE__->attr('_server');
 
 # Hello, my name is Barney Gumble, and I'm an alcoholic.
@@ -30,50 +30,53 @@ __PACKAGE__->attr('_server');
 sub find_executable_ok {
     my ($self, $desc) = @_;
     my $path = $self->_find_executable;
-    $self->_builder->ok($path ? 1 : 0, $desc);
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
+    Test::More::ok($path ? 1 : 0, $desc);
     return $path;
 }
 
 sub generate_port_ok {
     my ($self, $desc) = @_;
-    my $tb = $self->_builder;
+
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
 
     my $port = $self->_generate_port;
     if ($port) {
-        $tb->ok(1, $desc);
+        Test::More::ok(1, $desc);
         return $port;
     }
 
-    $tb->ok(0, $desc);
+    Test::More::ok(0, $desc);
     return;
 }
 
 sub server_ok {
     my ($self, $desc) = @_;
-    my $tb = $self->_builder;
+
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
 
     # Not running
     unless ($self->port) {
-        $tb->diag('No port specified for testing');
-        return $tb->ok(0, $desc);
+        return Test::More::ok(0, $desc);
     }
 
     # Test
     my $ok = $self->_check_server(1) ? 1 : 0;
-    $tb->ok($ok, $desc);
+    Test::More::ok($ok, $desc);
 }
 
 sub start_daemon_ok {
     my ($self, $desc) = @_;
-    my $tb = $self->_builder;
+
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
 
     # Port
     my $port = $self->port || $self->_generate_port;
-    return $tb->ok(0, $desc) unless $port;
+    return Test::More::ok(0, $desc) unless $port;
 
     # Path
     my $path = $self->_find_executable;
-    return $tb->ok(0, $desc) unless $path;
+    return Test::More::ok(0, $desc) unless $path;
 
     # Prepare command
     $self->command(qq/$^X "$path" daemon --port $port/);
@@ -83,15 +86,16 @@ sub start_daemon_ok {
 
 sub start_daemon_prefork_ok {
     my ($self, $desc) = @_;
-    my $tb = $self->_builder;
+
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
 
     # Port
     my $port = $self->port || $self->_generate_port;
-    return $tb->ok(0, $desc) unless $port;
+    return Test::More::ok(0, $desc) unless $port;
 
     # Path
     my $path = $self->_find_executable;
-    return $tb->ok(0, $desc) unless $path;
+    return Test::More::ok(0, $desc) unless $path;
 
     # Prepare command
     $self->command(qq/$^X "$path" daemon_prefork --port $port/);
@@ -101,11 +105,12 @@ sub start_daemon_prefork_ok {
 
 sub start_server_ok {
     my ($self, $desc) = @_;
-    my $tb = $self->_builder;
+
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
 
     # Start server
     my $pid = $self->_start_server;
-    return $tb->ok(0, $desc) unless $pid;
+    return Test::More::ok(0, $desc) unless $pid;
 
     # Wait for server
     my $timeout     = $self->timeout;
@@ -116,8 +121,7 @@ sub start_server_ok {
         $timeout -= time - $time_before;
         if ($timeout <= 0) {
             $self->_stop_server;
-            $tb->diag('Server timed out');
-            return $tb->ok(0, $desc);
+            return Test::More::ok(0, $desc);
         }
 
         # Wait
@@ -125,33 +129,34 @@ sub start_server_ok {
     }
 
     # Done
-    $tb->ok(1, $desc);
+    Test::More::ok(1, $desc);
 
     return $self->port;
 }
 
 sub start_server_untested_ok {
     my ($self, $desc) = @_;
-    my $tb = $self->_builder;
+
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
 
     # Start server
     my $pid = $self->_start_server($desc);
-    return $tb->ok(0, $desc) unless $pid;
+    return Test::More::ok(0, $desc) unless $pid;
 
     # Done
-    $tb->ok(1, $desc);
+    Test::More::ok(1, $desc);
 
     return $self->port;
 }
 
 sub stop_server_ok {
     my ($self, $desc) = @_;
-    my $tb = $self->_builder;
+
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
 
     # Running?
     unless ($self->pid && kill 0, $self->pid) {
-        $tb->diag('Server not running');
-        return $tb->ok(0, $desc);
+        return Test::More::ok(0, $desc);
     }
 
     # Debug
@@ -169,16 +174,15 @@ sub stop_server_ok {
             sleep 1;
         }
         else {
-            $tb->ok(1, $desc);
+            Test::More::ok(1, $desc);
             return;
         }
     }
-    $tb->diag("Can't stop server");
-    $tb->ok(0, $desc);
+    Test::More::ok(0, $desc);
 }
 
 sub _check_server {
-    my ($self, $diag) = @_;
+    my $self = shift;
 
     # Create socket
     my $server = IO::Socket::INET->new(
@@ -192,10 +196,8 @@ sub _check_server {
         close $server;
         return 1;
     }
-    else {
-        $self->_builder->diag("Server check failed: $!") if $diag;
-        return;
-    }
+
+    return;
 }
 
 sub _find_executable {
@@ -246,7 +248,6 @@ sub _generate_port {
 
 sub _start_server {
     my $self = shift;
-    my $tb   = $self->_builder;
 
     my $command = $self->command;
     warn "\nSERVER COMMAND: $command\n" if DEBUG;
@@ -256,10 +257,7 @@ sub _start_server {
     $self->pid($pid);
 
     # Process started?
-    unless ($pid) {
-        $tb->diag("Can't start server: $!");
-        return;
-    }
+    return unless $pid;
 
     $self->_server->blocking(0);
 
@@ -285,7 +283,7 @@ Test::Mojo::Server - Server Tests
 
 =head1 SYNOPSIS
 
-    use Mojo::Test::Server;
+    use Test::Mojo::Server;
 
     my $server = Test::Mojo::Server->new;
     $server->start_daemon_ok;
@@ -293,11 +291,12 @@ Test::Mojo::Server - Server Tests
 
 =head1 DESCRIPTION
 
-L<Mojo::Test::Server> is a test harness for server tests.
+L<Test::Mojo::Server> is a collection of testing helpers specifically for
+developers of L<Mojo> server bindings.
 
 =head1 ATTRIBUTES
 
-L<Mojo::Test::Server> implements the following attribute.
+L<Test::Mojo::Server> implements the following attributes.
 
 =head2 C<command>
 
@@ -330,12 +329,12 @@ L<Mojo::Test::Server> implements the following attribute.
 
 =head1 METHODS
 
-L<Mojo::Test::Server> inherits all methods from L<Mojo::Base> and implements
+L<Test::Mojo::Server> inherits all methods from L<Mojo::Base> and implements
 the following new ones.
 
 =head2 C<new>
 
-    my $server = Mojo::Test::Server->new;
+    my $server = Test::Mojo::Server->new;
 
 =head2 C<find_executable_ok>
 

@@ -231,7 +231,41 @@ Templates can have layouts.
     @@ layouts/green.html.ep
     <!doctype html><html>
         <head><title>Green!</title></head>
-        <body><%== content %></body>
+        <body><%= content %></body>
+    </html>
+
+Templates can also extend each other.
+
+    # GET /
+    get '/' => 'first';
+
+    # GET /second
+    get '/second' => 'second';
+
+    __DATA__
+
+    @@ first.html.ep
+    % extends 'second';
+    %{ content header =>
+        <title>Howdy!</title>
+    %}
+    First!
+
+    @@ second.html.ep
+    % layout 'third';
+    %{ content header =>
+        <title>Welcome!</title>
+    %}
+    Second!
+
+    @@ layouts/third.html.ep
+    <!doctype html><html>
+        <head>
+            <%{= content header => %>
+                <title>Lame default title...</title>
+            <%}%>
+        </head>
+        <body><%= content %></body>
     </html>
 
 Route placeholders allow capturing parts of a request path until a C</> or
@@ -367,7 +401,7 @@ multiple features at once.
 
     @@ welcome.html.ep
     <%= $groovy %> is groovy!
-    <%== include 'menu' %>
+    <%= include 'menu' %>
 
     @@ menu.html.ep
     <a href="<%= url_for 'index' %>">Try again</a>
@@ -375,7 +409,7 @@ multiple features at once.
     @@ layouts/funky.html.ep
     <!doctype html><html>
         <head><title>Funky!</title></head>
-        <body><%== content %>
+        <body><%= content %>
         </body>
     </html>
 
@@ -459,6 +493,22 @@ exists.
 
     % mkdir public
     % mv something.js public/something.js
+
+Testing your application is as easy as creating a C<t> directory and filling
+it with normal Perl unit tests like C<t/funky.t>.
+
+    use Test::More tests => 3;
+    use Test::Mojo;
+
+    use FindBin;
+    require "$FindBin::Bin/../myapp.pl";
+
+    my $t = Test::Mojo->new;
+    $t->get_ok('/')->status_is(200)->content_like(qr/Funky!/);
+
+Run all unit tests with the C<test> command.
+
+    % ./myapp.pl test
 
 To disable debug messages later in a production setup you can change the
 L<Mojolicious> mode, default will be C<development>.

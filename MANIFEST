@@ -26,6 +26,7 @@ lib/Mojo/Content/Single.pm
 lib/Mojo/Cookie.pm
 lib/Mojo/Cookie/Request.pm
 lib/Mojo/Cookie/Response.pm
+lib/Mojo/CookieJar.pm
 lib/Mojo/Date.pm
 lib/Mojo/Exception.pm
 lib/Mojo/Filter.pm
@@ -74,6 +75,7 @@ lib/MojoX/Routes.pm
 lib/MojoX/Routes/Match.pm
 lib/MojoX/Routes/Pattern.pm
 lib/MojoX/Types.pm
+lib/Test/Mojo.pm
 lib/Test/Mojo/Server.pm
 LICENSE
 Makefile.PL
@@ -98,6 +100,7 @@ t/mojo/bytestream.t
 t/mojo/cgi.t
 t/mojo/client.t
 t/mojo/cookie.t
+t/mojo/cookiejar.t
 t/mojo/daemon.t
 t/mojo/daemon_prefork.t
 t/mojo/date.t

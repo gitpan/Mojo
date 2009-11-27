@@ -7,7 +7,7 @@ use warnings;
 
 use utf8;
 
-use Test::More tests => 237;
+use Test::More tests => 245;
 
 # Wait you're the only friend I have...
 # You really want a robot for a friend?
@@ -80,8 +80,9 @@ get '/session_cookie' => sub {
 
 # GET /session_cookie/2
 get '/session_cookie/2' => sub {
-    my $self  = shift;
-    my $value = $self->req->cookie('session')->value;
+    my $self    = shift;
+    my $session = $self->req->cookie('session');
+    my $value   = $session ? $session->value : 'missing';
     $self->render_text("Session is $value!");
 };
 
@@ -278,6 +279,19 @@ $t->get_ok('http://kraih.com/session_cookie/2')->status_is(200)
   ->header_is(Server         => 'Mojo (Perl)')
   ->header_is('X-Powered-By' => 'Mojo (Perl)')->content_is('Session is 23!');
 
+# GET /session_cookie/2 (retry)
+$t->get_ok('http://kraih.com/session_cookie/2')->status_is(200)
+  ->header_is(Server         => 'Mojo (Perl)')
+  ->header_is('X-Powered-By' => 'Mojo (Perl)')->content_is('Session is 23!');
+
+# GET /session_cookie/2 (session reset)
+$t->reset_session;
+ok(!$t->tx);
+$t->get_ok('http://kraih.com/session_cookie/2')->status_is(200)
+  ->header_is(Server         => 'Mojo (Perl)')
+  ->header_is('X-Powered-By' => 'Mojo (Perl)')
+  ->content_is('Session is missing!');
+
 # GET /foo
 $t->get_ok('/foo')->status_is(200)->header_is(Server => 'Mojo (Perl)')
   ->header_is('X-Powered-By' => 'Mojo (Perl)')->content_is('Yea baby!');
@@ -376,12 +390,8 @@ $app->log->level($level);
 # GET /json
 $t->get_ok('/json')->status_is(200)->header_is(Server => 'Mojo (Perl)')
   ->header_is('X-Powered-By' => 'Mojo (Perl)')
-  ->content_type_is('application/json');
-my $hash = Mojo::JSON->new->decode($t->tx->res->body);
-is($hash->{foo}->[0], 1);
-is($hash->{foo}->[1], -2);
-is($hash->{foo}->[2], 3);
-is($hash->{foo}->[3], 'bar');
+  ->content_type_is('application/json')
+  ->json_content_is({foo => [1, -2, 3, 'bar']});
 
 # GET /autostash
 $t->get_ok('/autostash?bar=23')->status_is(200)
@@ -445,8 +455,8 @@ Test::Mojo->new(tx => $t->redirects->[0])->status_is(302)
 # GET /koi8-r
 $t->get_ok('/koi8-r')->status_is(200)->header_is(Server => 'Mojo (Perl)')
   ->header_is('X-Powered-By' => 'Mojo (Perl)')
-  ->content_type_is('text/html; charset=koi8-r');
-is(b($t->tx->res->body)->decode('koi8-r'),
+  ->content_type_is('text/html; charset=koi8-r')
+  ->content_is(
     "Этот человек наполняет меня надеждой."
       . " Ну, и некоторыми другими глубокими и приводящими в"
       . " замешательство эмоциями.\n");

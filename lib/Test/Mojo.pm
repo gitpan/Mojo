@@ -7,7 +7,9 @@ use warnings;
 
 use base 'Mojo::Base';
 
+use Mojo::ByteStream 'b';
 use Mojo::Client;
+use Mojo::JSON;
 
 require Test::More;
 
@@ -28,7 +30,7 @@ sub content_is {
 
     # Test
     local $Test::Builder::Level = $Test::Builder::Level + 1;
-    Test::More::is($tx->res->body, $value, $desc);
+    Test::More::is($self->_get_content($tx), $value, $desc);
 
     return $self;
 }
@@ -41,7 +43,7 @@ sub content_like {
 
     # Test
     local $Test::Builder::Level = $Test::Builder::Level + 1;
-    Test::More::like($tx->res->body, $regex, $desc);
+    Test::More::like($self->_get_content($tx), $regex, $desc);
 
     return $self;
 }
@@ -110,6 +112,20 @@ sub header_like {
     return $self;
 }
 
+sub json_content_is {
+    my ($self, $struct, $desc) = @_;
+
+    # Transaction
+    my $tx = $self->tx;
+
+    # Test
+    local $Test::Builder::Level = $Test::Builder::Level + 1;
+    Test::More::is_deeply(Mojo::JSON->new->decode($tx->res->body),
+        $struct, $desc);
+
+    return $self;
+}
+
 # God bless those pagans.
 sub post_ok { shift->_request_ok('post', @_) }
 
@@ -162,10 +178,25 @@ sub post_form_ok {
     return $self;
 }
 
-# WHO IS FONZY!?! Don't they teach you anything at school?
+# WHO IS FONZY!? !Don't they teach you anything at school
 sub put_ok { shift->_request_ok('put', @_) }
 
+sub reset_session {
+    my $self = shift;
+
+    # Client
+    $self->_client(Mojo::Client->new);
+    $self->_client->app($self->app);
+    $self->_client->max_redirects($self->max_redirects);
+
+    # Transaction
+    $self->tx(undef);
+
+    return $self;
+}
+
 # Internet! Is that thing still around?
+
 sub status_is {
     my ($self, $status, $desc) = @_;
 
@@ -177,6 +208,19 @@ sub status_is {
     Test::More::is($tx->res->code, $status, $desc);
 
     return $self;
+}
+
+sub _get_content {
+    my ($self, $tx) = @_;
+
+    # Charset
+    ($tx->res->headers->content_type || '') =~ /charset=\"?(\S+)\"?/;
+    my $charset = $1;
+
+    # Content
+    return $charset
+      ? b($tx->res->body)->decode($charset)->to_string
+      : $tx->res->body;
 }
 
 # Are you sure this is the Sci-Fi Convention? It's full of nerds!
@@ -313,6 +357,11 @@ following new ones.
     $t = $t->header_like(Expect => qr/100-continue/);
     $t = $t->header_like(Expect => qr/100-continue/, 'right header!');
 
+=head2 C<json_content_is>
+
+    $t = $t->json_content_is([1, 2, 3]);
+    $t = $t->json_content_is([1, 2, 3], 'right content!');
+
 =head2 C<post_ok>
 
     $t = $t->post_ok('/foo');
@@ -338,6 +387,10 @@ following new ones.
     $t = $t->put_ok('/foo', {Expect => '100-continue'});
     $t = $t->put_ok('/foo', 'request worked!');
     $t = $t->put_ok('/foo', {Expect => '100-continue'}, 'request worked!');
+
+=head2 C<reset_session>
+
+    $t = $t->reset_session;
 
 =head2 C<status_is>
 

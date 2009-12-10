@@ -18,12 +18,18 @@ __PACKAGE__->attr('_params');
 sub cookies {
     my $self = shift;
 
-    # Replace cookies
+    # Add cookies
     if (@_) {
         my $cookies = shift;
+        $cookies = Mojo::Cookie::Request->new($cookies)
+          if ref $cookies eq 'HASH';
         $cookies = $cookies->to_string_with_prefix;
-        for my $cookie (@_) { $cookies .= "; $cookie" }
-        $self->headers->header('Cookie', $cookies);
+        for my $cookie (@_) {
+            $cookie = Mojo::Cookie::Request->new($cookie)
+              if ref $cookie eq 'HASH';
+            $cookies .= "; $cookie";
+        }
+        $self->headers->add('Cookie', $cookies);
         return $self;
     }
 
@@ -367,6 +373,7 @@ implements the following new ones.
 
     my $cookies = $req->cookies;
     $req        = $req->cookies(Mojo::Cookie::Request->new);
+    $req        = $req->cookies({name => 'foo', value => 'bar'});
 
 =head2 C<fix_headers>
 

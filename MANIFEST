@@ -64,9 +64,14 @@ lib/Mojolicious/Command/Generate/LiteApp.pm
 lib/Mojolicious/Command/Routes.pm
 lib/Mojolicious/Commands.pm
 lib/Mojolicious/Controller.pm
-lib/Mojolicious/Dispatcher.pm
 lib/Mojolicious/Lite.pm
-lib/Mojolicious/Renderer.pm
+lib/Mojolicious/Plugin.pm
+lib/Mojolicious/Plugin/AgentCondition.pm
+lib/Mojolicious/Plugin/DefaultHelpers.pm
+lib/Mojolicious/Plugin/EplRenderer.pm
+lib/Mojolicious/Plugin/EpRenderer.pm
+lib/Mojolicious/Plugin/RequestTimer.pm
+lib/Mojolicious/Plugins.pm
 lib/MojoX/Dispatcher/Routes.pm
 lib/MojoX/Dispatcher/Routes/Controller.pm
 lib/MojoX/Dispatcher/Static.pm
@@ -99,6 +104,7 @@ t/mojo/buffer.t
 t/mojo/bytestream.t
 t/mojo/cgi.t
 t/mojo/client.t
+t/mojo/content.t
 t/mojo/cookie.t
 t/mojo/cookiejar.t
 t/mojo/daemon.t

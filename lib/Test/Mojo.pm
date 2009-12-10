@@ -84,8 +84,6 @@ sub delete_ok { shift->_request_ok('delete', @_) }
 sub get_ok    { shift->_request_ok('get',    @_) }
 sub head_ok   { shift->_request_ok('head',   @_) }
 
-# No matter how good you are at something,
-# there's always about a million people better than you.
 sub header_is {
     my ($self, $name, $value, $desc) = @_;
 
@@ -131,9 +129,23 @@ sub post_ok { shift->_request_ok('post', @_) }
 
 # Hey, I asked for ketchup! I'm eatin' salad here!
 sub post_form_ok {
-    my ($self, $url, $form, $headers, $desc) = @_;
+    my $self = shift;
+
+    # URL
+    my $url = shift;
+
+    # Encoding
+    my $encoding = shift;
+
+    # Form
+    my $form = ref $encoding ? $encoding : shift;
+    $encoding = undef if ref $encoding;
+
+    # Headers
+    my $headers = shift;
 
     # Description
+    my $desc = shift;
     $desc = $headers unless ref $headers;
 
     # Client
@@ -147,11 +159,22 @@ sub post_form_ok {
 
         # Array
         if (ref $form->{$name} eq 'ARRAY') {
-            $params->append($_, $form->{$_}) for @{$form->{$name}};
+            for my $value (@{$form->{$name}}) {
+                $params->append($name,
+                    $encoding
+                    ? b($value)->encode($encoding)->to_string
+                    : $value);
+            }
         }
 
         # Single value
-        else { $params->append($name, $form->{$name}) }
+        else {
+            my $value = $form->{$name};
+            $params->append($name,
+                $encoding
+                ? b($value)->encode($encoding)->to_string
+                : $value);
+        }
     }
 
     # Transaction
@@ -178,7 +201,7 @@ sub post_form_ok {
     return $self;
 }
 
-# WHO IS FONZY!? !Don't they teach you anything at school
+# WHO IS FONZY!?! Don't they teach you anything at school?
 sub put_ok { shift->_request_ok('put', @_) }
 
 sub reset_session {
@@ -196,7 +219,6 @@ sub reset_session {
 }
 
 # Internet! Is that thing still around?
-
 sub status_is {
     my ($self, $status, $desc) = @_;
 
@@ -214,7 +236,7 @@ sub _get_content {
     my ($self, $tx) = @_;
 
     # Charset
-    ($tx->res->headers->content_type || '') =~ /charset=\"?(\S+)\"?/;
+    ($tx->res->headers->content_type || '') =~ /charset=\"?([^"\s]+)\"?/;
     my $charset = $1;
 
     # Content
@@ -372,10 +394,25 @@ following new ones.
 =head2 C<post_form_ok>
 
     $t = $t->post_form_ok('/foo' => {test => 123});
+    $t = $t->post_form_ok('/foo' => 'UTF-8' => {test => 123});
     $t = $t->post_form_ok('/foo', {test => 123}, {Expect => '100-continue'});
-    $t = $t->post_form_ok('/foo', {test => 123}, 'request worked!');
     $t = $t->post_form_ok(
         '/foo',
+        'UTF-8',
+        {test => 123},
+        {Expect => '100-continue'}
+    );
+    $t = $t->post_form_ok('/foo', {test => 123}, 'request worked!');
+    $t = $t->post_form_ok('/foo', 'UTF-8', {test => 123}, 'request worked!');
+    $t = $t->post_form_ok(
+        '/foo',
+        {test   => 123},
+        {Expect => '100-continue'},
+        'request worked!'
+    );
+    $t = $t->post_form_ok(
+        '/foo',
+        'UTF-8',
         {test   => 123},
         {Expect => '100-continue'},
         'request worked!'

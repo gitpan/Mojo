@@ -1,283 +1,254 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::Message::Response;
-
-use strict;
-use warnings;
-
-use base 'Mojo::Message';
+use Mojo::Base 'Mojo::Message';
 
 use Mojo::Cookie::Response;
 use Mojo::Date;
 
-__PACKAGE__->attr([qw/code message/]);
+has [qw(code message)];
 
-# Umarked codes are from RFC 2616 (mostly taken from LWP)
+# Umarked codes are from RFC 7231
 my %MESSAGES = (
-    100 => 'Continue',
-    101 => 'Switching Protocols',
-    102 => 'Processing',                      # RFC 2518 (WebDAV)
-    200 => 'OK',
-    201 => 'Created',
-    202 => 'Accepted',
-    203 => 'Non-Authoritative Information',
-    204 => 'No Content',
-    205 => 'Reset Content',
-    206 => 'Partial Content',
-    207 => 'Multi-Status',                    # RFC 2518 (WebDAV)
-    300 => 'Multiple Choices',
-    301 => 'Moved Permanently',
-    302 => 'Found',
-    303 => 'See Other',
-    304 => 'Not Modified',
-    305 => 'Use Proxy',
-    307 => 'Temporary Redirect',
-    400 => 'Bad Request',
-    401 => 'Unauthorized',
-    402 => 'Payment Required',
-    403 => 'Forbidden',
-    404 => 'Not Found',
-    405 => 'Method Not Allowed',
-    406 => 'Not Acceptable',
-    407 => 'Proxy Authentication Required',
-    408 => 'Request Timeout',
-    409 => 'Conflict',
-    410 => 'Gone',
-    411 => 'Length Required',
-    412 => 'Precondition Failed',
-    413 => 'Request Entity Too Large',
-    414 => 'Request-URI Too Large',
-    415 => 'Unsupported Media Type',
-    416 => 'Request Range Not Satisfiable',
-    417 => 'Expectation Failed',
-    422 => 'Unprocessable Entity',            # RFC 2518 (WebDAV)
-    423 => 'Locked',                          # RFC 2518 (WebDAV)
-    424 => 'Failed Dependency',               # RFC 2518 (WebDAV)
-    425 => 'Unordered Colection',             # RFC 3648 (WebDav)
-    426 => 'Upgrade Required',                # RFC 2817
-    449 => 'Retry With',                      # unofficial Microsoft
-    500 => 'Internal Server Error',
-    501 => 'Not Implemented',
-    502 => 'Bad Gateway',
-    503 => 'Service Unavailable',
-    504 => 'Gateway Timeout',
-    505 => 'HTTP Version Not Supported',
-    506 => 'Variant Also Negotiates',         # RFC 2295
-    507 => 'Insufficient Storage',            # RFC 2518 (WebDAV)
-    509 => 'Bandwidth Limit Exceeded',        # unofficial
-    510 => 'Not Extended'                     # RFC 2774
+  100 => 'Continue',
+  101 => 'Switching Protocols',
+  102 => 'Processing',                         # RFC 2518 (WebDAV)
+  200 => 'OK',
+  201 => 'Created',
+  202 => 'Accepted',
+  203 => 'Non-Authoritative Information',
+  204 => 'No Content',
+  205 => 'Reset Content',
+  206 => 'Partial Content',
+  207 => 'Multi-Status',                       # RFC 2518 (WebDAV)
+  208 => 'Already Reported',                   # RFC 5842
+  226 => 'IM Used',                            # RFC 3229
+  300 => 'Multiple Choices',
+  301 => 'Moved Permanently',
+  302 => 'Found',
+  303 => 'See Other',
+  304 => 'Not Modified',
+  305 => 'Use Proxy',
+  307 => 'Temporary Redirect',
+  308 => 'Permanent Redirect',                 # RFC 7238
+  400 => 'Bad Request',
+  401 => 'Unauthorized',
+  402 => 'Payment Required',
+  403 => 'Forbidden',
+  404 => 'Not Found',
+  405 => 'Method Not Allowed',
+  406 => 'Not Acceptable',
+  407 => 'Proxy Authentication Required',
+  408 => 'Request Timeout',
+  409 => 'Conflict',
+  410 => 'Gone',
+  411 => 'Length Required',
+  412 => 'Precondition Failed',
+  413 => 'Request Entity Too Large',
+  414 => 'Request-URI Too Long',
+  415 => 'Unsupported Media Type',
+  416 => 'Request Range Not Satisfiable',
+  417 => 'Expectation Failed',
+  418 => "I'm a teapot",                       # RFC 2324 :)
+  422 => 'Unprocessable Entity',               # RFC 2518 (WebDAV)
+  423 => 'Locked',                             # RFC 2518 (WebDAV)
+  424 => 'Failed Dependency',                  # RFC 2518 (WebDAV)
+  425 => 'Unordered Colection',                # RFC 3648 (WebDAV)
+  426 => 'Upgrade Required',                   # RFC 2817
+  428 => 'Precondition Required',              # RFC 6585
+  429 => 'Too Many Requests',                  # RFC 6585
+  431 => 'Request Header Fields Too Large',    # RFC 6585
+  500 => 'Internal Server Error',
+  501 => 'Not Implemented',
+  502 => 'Bad Gateway',
+  503 => 'Service Unavailable',
+  504 => 'Gateway Timeout',
+  505 => 'HTTP Version Not Supported',
+  506 => 'Variant Also Negotiates',            # RFC 2295
+  507 => 'Insufficient Storage',               # RFC 2518 (WebDAV)
+  508 => 'Loop Detected',                      # RFC 5842
+  509 => 'Bandwidth Limit Exceeded',           # Unofficial
+  510 => 'Not Extended',                       # RFC 2774
+  511 => 'Network Authentication Required'     # RFC 6585
 );
 
 sub cookies {
-    my $self = shift;
+  my $self = shift;
 
-    # Add cookies
-    if (@_) {
-        for my $cookie (@_) {
-            $cookie = Mojo::Cookie::Response->new($cookie)
-              if ref $cookie eq 'HASH';
-            $self->headers->add('Set-Cookie', "$cookie");
-        }
-        return $self;
-    }
+  # Parse cookies
+  my $headers = $self->headers;
+  return [map { @{Mojo::Cookie::Response->parse($_)} } $headers->set_cookie]
+    unless @_;
 
-    # Set-Cookie2
-    my $cookies = [];
-    if (my $cookie2 = $self->headers->set_cookie2) {
-        push @$cookies, @{Mojo::Cookie::Response->parse($cookie2)};
-    }
+  # Add cookies
+  for my $cookie (@_) {
+    $cookie = Mojo::Cookie::Response->new($cookie) if ref $cookie eq 'HASH';
+    $headers->add('Set-Cookie' => "$cookie");
+  }
 
-    # Set-Cookie
-    if (my $cookie = $self->headers->set_cookie) {
-        push @$cookies, @{Mojo::Cookie::Response->parse($cookie)};
-    }
-
-    # No cookies
-    return $cookies;
+  return $self;
 }
 
-sub default_message { $MESSAGES{$_[1] || $_[0]->code || 200} }
+sub default_message { $MESSAGES{$_[1] || $_[0]->code // 404} || '' }
+
+sub extract_start_line {
+  my ($self, $bufref) = @_;
+
+  # We have a full response line
+  return undef unless $$bufref =~ s/^(.*?)\x0d?\x0a//;
+  return !$self->error({message => 'Bad response start line'})
+    unless $1 =~ m!^\s*HTTP/(\d\.\d)\s+(\d\d\d)\s*(.+)?$!;
+
+  my $content = $self->content;
+  $content->skip_body(1) if $self->code($2)->is_empty;
+  $content->auto_relax(1) unless defined $content->auto_relax;
+  $content->expect_close(1) if $1 eq '1.0';
+  return !!$self->version($1)->message($3);
+}
 
 sub fix_headers {
-    my $self = shift;
+  my $self = shift;
+  $self->{fix} ? return $self : $self->SUPER::fix_headers(@_);
 
-    $self->SUPER::fix_headers(@_);
+  # Date
+  my $headers = $self->headers;
+  $headers->date(Mojo::Date->new->to_string) unless $headers->date;
 
-    # Date header is required in responses
-    $self->headers->date(Mojo::Date->new->to_string)
-      unless $self->headers->date;
+  return $self;
+}
 
-    return $self;
+sub get_start_line_chunk {
+  my ($self, $offset) = @_;
+
+  unless (defined $self->{start_buffer}) {
+    my $code = $self->code    || 404;
+    my $msg  = $self->message || $self->default_message;
+    $self->{start_buffer} = "HTTP/@{[$self->version]} $code $msg\x0d\x0a";
+  }
+
+  $self->emit(progress => 'start_line', $offset);
+  return substr $self->{start_buffer}, $offset, 131072;
+}
+
+sub is_empty {
+  my $self = shift;
+  return undef unless my $code = $self->code;
+  return $self->is_status_class(100) || $code == 204 || $code == 304;
 }
 
 sub is_status_class {
-    my ($self, $class) = @_;
-    return 1 if ($self->code >= $class && $self->code < ($class + 100));
-    return;
-}
-
-sub parse {
-    my ($self, $chunk) = @_;
-
-    # Buffer
-    $self->buffer->add_chunk($chunk) if defined $chunk;
-
-    return $self->_parse(0);
-}
-
-sub parse_until_body {
-    my ($self, $chunk) = @_;
-
-    # Buffer
-    $self->buffer->add_chunk($chunk);
-
-    return $self->_parse(1);
-}
-
-sub _parse {
-    my $self = shift;
-    my $until_body = @_ ? shift : 0;
-
-    # Start line
-    $self->_parse_start_line if $self->is_state('start');
-
-    # Pass through
-    return $self->SUPER::_parse($until_body);
-}
-
-sub _build_start_line {
-    my $self    = shift;
-    my $version = $self->version;
-
-    # HTTP 0.9 has no start line
-    return '' if $version eq '0.9';
-
-    # HTTP 1.0 and above
-    my $code    = $self->code    || 200;
-    my $message = $self->message || $self->default_message;
-    return "HTTP/$version $code $message\x0d\x0a";
-}
-
-# Weaseling out of things is important to learn.
-# It's what separates us from the animals... except the weasel.
-sub _parse_start_line {
-    my $self = shift;
-
-    # HTTP 0.9 responses have no start line
-    return $self->state('content') if $self->version eq '0.9';
-
-    # Try to detect HTTP 0.9
-    my $buffer = $self->buffer;
-    if ($buffer =~ /^\s*(\S+\s*)/) {
-        my $string = $1;
-
-        # HTTP 0.9 will most likely not start with "HTTP/"
-        my $match = "\/PTTH";
-        substr $match, 0, 5 - length $string, '' if length $string < 5;
-        $match = reverse $match;
-
-        # Detected!
-        if ($string !~ /^\s*$match/) {
-            $self->major_version(0);
-            $self->minor_version(9);
-            $self->state('content');
-            $self->content->relaxed(1);
-            return 1;
-        }
-    }
-
-    # We have a full HTTP 1.0+ response line
-    my $line = $buffer->get_line;
-    if (defined $line) {
-        if ($line =~ /
-            ^\s*              # Start
-            HTTP\/(\d)\.(\d)  # Version
-            \s+               # Whitespace
-            (\d\d\d)          # Code
-            \s+               # Whitespace
-            ([\w\s]+)         # Message
-            $                 # End
-        /x
-          )
-        {
-            $self->major_version($1);
-            $self->minor_version($2);
-            $self->code($3);
-            $self->message($4);
-            $self->state('content');
-        }
-        else { $self->error('Parser error: Invalid response line.') }
-    }
+  my ($self, $class) = @_;
+  return undef unless my $code = $self->code;
+  return $code >= $class && $code < ($class + 100);
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
-Mojo::Message::Response - Response
+Mojo::Message::Response - HTTP response
 
 =head1 SYNOPSIS
 
-    use Mojo::Message::Response;
+  use Mojo::Message::Response;
 
-    my $res = Mojo::Message::Response->new;
-    $res->code(200);
-    $res->headers->content_type('text/plain');
-    $res->body('Hello World!');
+  # Parse
+  my $res = Mojo::Message::Response->new;
+  $res->parse("HTTP/1.0 200 OK\x0d\x0a");
+  $res->parse("Content-Length: 12\x0d\x0a");
+  $res->parse("Content-Type: text/plain\x0d\x0a\x0d\x0a");
+  $res->parse('Hello World!');
+  say $res->code;
+  say $res->headers->content_type;
+  say $res->body;
 
-    print "$res";
-
-    $res->parse('HTTP/1.1 200 OK');
+  # Build
+  my $res = Mojo::Message::Response->new;
+  $res->code(200);
+  $res->headers->content_type('text/plain');
+  $res->body('Hello World!');
+  say $res->to_string;
 
 =head1 DESCRIPTION
 
-L<Mojo::Message::Response> is a container for HTTP responses.
+L<Mojo::Message::Response> is a container for HTTP responses based on
+L<RFC 7230|http://tools.ietf.org/html/rfc7230> and
+L<RFC 7231|http://tools.ietf.org/html/rfc7231>.
+
+=head1 EVENTS
+
+L<Mojo::Message::Response> inherits all events from L<Mojo::Message>.
 
 =head1 ATTRIBUTES
 
-L<Mojo::Message::Response> inherits all attributes from L<Mojo::Message>
-and implements the following new ones.
+L<Mojo::Message::Response> inherits all attributes from L<Mojo::Message> and
+implements the following new ones.
 
-=head2 C<code>
+=head2 code
 
-    my $code = $res->code;
-    $res     = $res->code(200);
+  my $code = $res->code;
+  $res     = $res->code(200);
 
-=head2 C<message>
+HTTP response code.
 
-    my $message = $res->message;
-    $res        = $res->message('OK');
+=head2 message
+
+  my $msg = $res->message;
+  $res    = $res->message('OK');
+
+HTTP response message.
 
 =head1 METHODS
 
 L<Mojo::Message::Response> inherits all methods from L<Mojo::Message> and
 implements the following new ones.
 
-=head2 C<cookies>
+=head2 cookies
 
-    my $cookies = $res->cookies;
-    $res        = $res->cookies(Mojo::Cookie::Response->new);
-    $req        = $req->cookies({name => 'foo', value => 'bar'});
+  my $cookies = $res->cookies;
+  $res        = $res->cookies(Mojo::Cookie::Response->new);
+  $res        = $res->cookies({name => 'foo', value => 'bar'});
 
-=head2 C<default_message>
+Access response cookies, usually L<Mojo::Cookie::Response> objects.
 
-    my $message = $res->default_message;
+=head2 default_message
 
-=head2 C<fix_headers>
+  my $msg = $res->default_message;
 
-    $res = $res->fix_headers;
+Generate default response message for code.
 
-=head2 C<is_status_class>
+=head2 extract_start_line
 
-    my $is_2xx = $res->is_status_class(200);
+  my $bool = $res->extract_start_line(\$str);
 
-=head2 C<parse>
+Extract status line from string.
 
-    $res = $res->parse('HTTP/1.1 200 OK');
+=head2 fix_headers
 
-=head2 C<parse_until_body>
+  $res = $res->fix_headers;
 
-    $res = $res->parse_until_body('HTTP/1.1 200 OK');
+Make sure response has all required headers.
+
+=head2 get_start_line_chunk
+
+  my $bytes = $res->get_start_line_chunk($offset);
+
+Get a chunk of status line data starting from a specific position.
+
+=head2 is_empty
+
+  my $bool = $res->is_empty;
+
+Check if this is a C<1xx>, C<204> or C<304> response.
+
+=head2 is_status_class
+
+  my $bool = $res->is_status_class(200);
+
+Check response status class.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

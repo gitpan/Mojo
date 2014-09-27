@@ -1,685 +1,664 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::IOLoop;
+use Mojo::Base -base;
 
-use strict;
-use warnings;
-
-use base 'Mojo::Base';
-use bytes;
-
+# "Professor: Amy, technology isn't intrinsically good or evil. It's how it's
+#             used. Like the death ray."
 use Carp 'croak';
-use IO::Poll qw/POLLERR POLLHUP POLLIN POLLOUT/;
-use IO::Socket;
-use Mojo::Buffer;
+use Mojo::IOLoop::Client;
+use Mojo::IOLoop::Delay;
+use Mojo::IOLoop::Server;
+use Mojo::IOLoop::Stream;
+use Mojo::Reactor::Poll;
+use Mojo::Util qw(md5_sum steady_time);
+use Scalar::Util qw(blessed weaken);
 
-use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
+use constant DEBUG => $ENV{MOJO_IOLOOP_DEBUG} || 0;
 
-__PACKAGE__->attr(
-    [qw/accept_cb lock_cb unlock_cb/] => sub {
-        sub {1}
+has accept_interval => 0.025;
+has [qw(lock unlock)];
+has max_accepts     => 0;
+has max_connections => 1000;
+has multi_accept    => 50;
+has reactor         => sub {
+  my $class = Mojo::Reactor::Poll->detect;
+  warn "-- Reactor initialized ($class)\n" if DEBUG;
+  return $class->new->catch(sub { warn "@{[blessed $_[0]]}: $_[1]" });
+};
+
+# Ignore PIPE signal
+$SIG{PIPE} = 'IGNORE';
+
+# Initialize singleton reactor early
+__PACKAGE__->singleton->reactor;
+
+sub acceptor {
+  my ($self, $acceptor) = (_instance(shift), @_);
+
+  # Find acceptor for id
+  return $self->{acceptors}{$acceptor} unless ref $acceptor;
+
+  # Connect acceptor with reactor
+  my $id = $self->_id;
+  $self->{acceptors}{$id} = $acceptor;
+  weaken $acceptor->reactor($self->reactor)->{reactor};
+  $self->{accepts} = $self->max_accepts if $self->max_accepts;
+
+  # Allow new acceptor to get picked up
+  $self->_not_accepting;
+
+  return $id;
+}
+
+sub client {
+  my ($self, $cb) = (_instance(shift), pop);
+
+  # Make sure timers are running
+  $self->_recurring;
+
+  my $id = $self->_id;
+  my $client = $self->{connections}{$id}{client} = Mojo::IOLoop::Client->new;
+  weaken $client->reactor($self->reactor)->{reactor};
+
+  weaken $self;
+  $client->on(
+    connect => sub {
+      delete $self->{connections}{$id}{client};
+      my $stream = Mojo::IOLoop::Stream->new(pop);
+      $self->_stream($stream => $id);
+      $self->$cb(undef, $stream);
     }
-);
-__PACKAGE__->attr([qw/accept_timeout connect_timeout/] => 5);
-__PACKAGE__->attr([qw/clients servers connecting/]     => 0);
-__PACKAGE__->attr(max_clients                          => 1000);
-__PACKAGE__->attr(timeout                              => '0.25');
-
-__PACKAGE__->attr(_accepted    => sub { [] });
-__PACKAGE__->attr(_connections => sub { {} });
-__PACKAGE__->attr(_poll        => sub { IO::Poll->new });
-__PACKAGE__->attr([qw/_listen _running/]);
-
-# Singleton
-our $LOOP;
-
-# Instantiate singleton
-sub new { $LOOP ||= shift->SUPER::new(@_) }
-
-sub connect {
-    my $self = shift;
-
-    # Arguments
-    my $args = ref $_[0] ? $_[0] : {@_};
-
-    # New connection
-    my $socket = IO::Socket::INET->new(
-        Proto => 'tcp',
-        Type  => SOCK_STREAM
-    ) or return;
-
-    # Non blocking
-    $socket->blocking(0);
-
-    # Connect
-    my $sin = sockaddr_in($args->{port} || 80, inet_aton($args->{address}));
-    $socket->connect($sin);
-
-    # Add connection
-    $self->_connections->{$socket} = {
-        buffer        => Mojo::Buffer->new,
-        socket        => $socket,
-        connect_cb    => $args->{cb},
-        connecting    => 1,
-        connect_start => time
-    };
-
-    # Connecting counter
-    $self->connecting($self->connecting + 1);
-
-    # Add socket to poll
-    $self->writing("$socket");
-
-    return "$socket";
-}
-
-sub connection_timeout {
-    my ($self, $id, $timeout) = @_;
-    $self->_connections->{$id}->{timeout} = $timeout and return $self
-      if $timeout;
-    return $self->_connections->{$id}->{timeout};
-}
-
-sub drop {
-    my ($self, $id) = @_;
-
-    # Client counter
-    $self->clients($self->clients - 1)
-      if $self->_connections->{$id}->{client};
-
-    # Server counter
-    $self->servers($self->servers - 1)
-      if $self->_connections->{$id}->{server};
-
-    # Connecting counter
-    $self->connecting($self->connecting - 1)
-      if $self->_connections->{$id}->{connecting};
-
-    # Socket
-    if (my $socket = $self->_connections->{$id}->{socket}) {
-
-        # Remove socket from poll
-        $self->_poll->remove($socket);
-
-        # Close socket
-        close $socket;
+  );
+  $client->on(
+    error => sub {
+      $self->_remove($id);
+      $self->$cb(pop, undef);
     }
+  );
+  $client->connect(@_);
 
-    # Remove connection
-    delete $self->_connections->{$id};
-
-    return $self;
+  return $id;
 }
 
-sub error_cb { shift->_add_event('error', @_) }
-
-sub finish {
-    my ($self, $id) = @_;
-
-    # Finish connection once buffer is empty
-    $self->_connections->{$id}->{finish} = 1;
-
-    return $self;
+sub delay {
+  my $delay = Mojo::IOLoop::Delay->new;
+  weaken $delay->ioloop(_instance(shift))->{ioloop};
+  return @_ ? $delay->steps(@_) : $delay;
 }
 
-sub hup_cb { shift->_add_event('hup', @_) }
+sub is_running { _instance(shift)->reactor->is_running }
+sub next_tick  { _instance(shift)->reactor->next_tick(@_) }
+sub one_tick   { _instance(shift)->reactor->one_tick }
 
-# Fat Tony is a cancer on this fair city!
-# He is the cancer and I am the… uh… what cures cancer?
-sub listen {
-    my $self = shift;
+sub recurring { shift->_timer(recurring => @_) }
 
-    # Arguments
-    my $args = ref $_[0] ? $_[0] : {@_};
-
-    # Options
-    my %options = (
-        Listen    => $args->{queue_size} || SOMAXCONN,
-        LocalPort => $args->{port}       || 3000,
-        Proto     => 'tcp',
-        ReuseAddr => 1,
-        Type      => SOCK_STREAM
-    );
-    my $address = $args->{address};
-    $options{LocalAddr} = $address if $address;
-
-    # Create socket
-    my $listen = IO::Socket::INET->new(%options)
-      or croak "Can't create listen socket: $!";
-
-    # Non blocking
-    $listen->blocking(0);
-
-    # Add listen socket
-    $self->_listen($listen);
-
-    return $self;
+sub remove {
+  my ($self, $id) = (_instance(shift), @_);
+  my $c = $self->{connections}{$id};
+  if ($c && (my $stream = $c->{stream})) { return $stream->close_gracefully }
+  $self->_remove($id);
 }
 
-sub local_info {
-    my ($self, $id) = @_;
-    my ($port, $addr) =
-      sockaddr_in(getsockname($self->_connections->{$id}->{socket}));
-    return {address => inet_ntoa($addr), port => $port};
+sub reset {
+  my $self = _instance(shift);
+  $self->_remove($_)
+    for keys %{$self->{acceptors}}, keys %{$self->{connections}};
+  $self->reactor->reset;
+  $self->$_ for qw(_stop stop);
 }
 
-sub not_writing {
-    my ($self, $id) = @_;
+sub server {
+  my ($self, $cb) = (_instance(shift), pop);
 
-    # Chunk still in buffer
-    my $buffer = $self->_connections->{$id}->{buffer};
-    if ($buffer && $buffer->size) {
-        $self->_connections->{$id}->{read_only} = 1;
+  my $server = Mojo::IOLoop::Server->new;
+  weaken $self;
+  $server->on(
+    accept => sub {
+      my $stream = Mojo::IOLoop::Stream->new(pop);
+      $self->$cb($stream, $self->stream($stream));
     }
+  );
+  $server->listen(@_);
 
-    # Not writing
-    elsif (my $socket = $self->_connections->{$id}->{socket}) {
-        $self->_poll->mask($socket, POLLIN);
-    }
-
-    # Time
-    $self->_connections->{$id}->{time} = time;
+  return $self->acceptor($server);
 }
 
-sub read_cb { shift->_add_event('read', @_) }
-
-sub remote_info {
-    my ($self, $id) = @_;
-    my ($port, $addr) =
-      sockaddr_in(getpeername($self->_connections->{$id}->{socket}));
-    return {address => inet_ntoa($addr), port => $port};
-}
+sub singleton { state $loop = shift->SUPER::new }
 
 sub start {
-    my $self = shift;
-
-    # Already running?
-    return if $self->_running;
-
-    # Signals
-    $SIG{PIPE} = 'IGNORE';
-    $SIG{HUP} = sub { $self->_running(0) };
-
-    # Mainloop
-    $self->_running(1);
-    $self->_spin while $self->_running;
-
-    return $self;
+  my $self = shift;
+  croak 'Mojo::IOLoop already running' if $self->is_running;
+  _instance($self)->reactor->start;
 }
 
-sub stop { shift->_running(0) }
+sub stop { _instance(shift)->reactor->stop }
 
-sub write_cb { shift->_add_event('write', @_) }
+sub stream {
+  my ($self, $stream) = (_instance(shift), @_);
 
-sub writing {
-    my ($self, $id) = @_;
+  # Find stream for id
+  return ($self->{connections}{$stream} || {})->{stream} unless ref $stream;
 
-    # Writing
-    if (my $socket = $self->_connections->{$id}->{socket}) {
-        $self->_poll->mask($socket, POLLIN | POLLOUT);
-    }
+  # Release accept mutex
+  $self->_not_accepting;
 
-    # Time
-    $self->_connections->{$id}->{time} = time;
+  # Enforce connection limit (randomize to improve load balancing)
+  $self->max_connections(0)
+    if defined $self->{accepts} && ($self->{accepts} -= int(rand 2) + 1) <= 0;
+
+  return $self->_stream($stream, $self->_id);
 }
 
-sub _accept {
-    my $self = shift;
+sub timer { shift->_timer(timer => @_) }
 
-    # Accepted?
-    my @accepted;
-    for my $accept (@{$self->_accepted}) {
+sub _accepting {
+  my $self = shift;
 
-        # New socket
-        my $socket = $accept->[0];
+  # Check if we have acceptors
+  my $acceptors = $self->{acceptors} ||= {};
+  return $self->_remove(delete $self->{accept}) unless keys %$acceptors;
 
-        # Not yet
-        unless ($socket->connected) {
+  # Check connection limit
+  my $i   = keys %{$self->{connections}};
+  my $max = $self->max_connections;
+  return unless $i < $max;
 
-            # Timeout
-            $self->_error("$socket", 'Accept timeout.') and next
-              if time - $accept->[1] > $self->accept_timeout;
+  # Acquire accept mutex
+  if (my $cb = $self->lock) { return unless $cb->(!$i) }
+  $self->_remove(delete $self->{accept});
 
-            # Another try
-            push @accepted, $accept;
-            next;
-        }
-
-        # Non blocking
-        $socket->blocking(0);
-
-        # Add socket to poll
-        $self->not_writing("$socket");
-    }
-    $self->_accepted(\@accepted);
+  # Check if multi-accept is desirable
+  my $multi = $self->multi_accept;
+  $_->multi_accept($max < $multi ? 1 : $multi)->start for values %$acceptors;
+  $self->{accepting}++;
 }
 
-sub _add_event {
-    my ($self, $event, $id, $cb) = @_;
-
-    # Add event callback to connection
-    $self->_connections->{$id}->{$event} = $cb;
-
-    return $self;
+sub _id {
+  my $self = shift;
+  my $id;
+  do { $id = md5_sum('c' . steady_time . rand 999) }
+    while $self->{connections}{$id} || $self->{acceptors}{$id};
+  return $id;
 }
 
-sub _connect {
-    my $self = shift;
+sub _instance { ref $_[0] ? $_[0] : $_[0]->singleton }
 
-    # Connecting
-    my $c = $self->_connections;
-    for my $id (keys %$c) {
+sub _not_accepting {
+  my $self = shift;
 
-        # Connecting?
-        my $connect = $c->{$id};
-        next unless $connect->{connecting};
+  # Make sure timers are running
+  $self->_recurring;
 
-        # New socket
-        my $socket = $connect->{socket};
+  # Release accept mutex
+  return unless delete $self->{accepting};
+  return unless my $cb = $self->unlock;
+  $cb->();
 
-        # Not yet connected
-        if (!$socket->connected) {
-
-            # Timeout
-            if (time - $connect->{connect_start} > $self->connect_timeout) {
-                $self->_error("$socket", 'Connect timeout.');
-                $self->drop($id);
-            }
-
-        }
-
-        # Connected
-        else {
-
-            # Connected counter
-            $connect->{connecting} = 0;
-            $self->connecting($self->connecting - 1);
-
-            # Server counter
-            $connect->{server} = 1;
-            $self->servers($self->servers + 1);
-
-            # Connect callback
-            my $cb = $connect->{connect_cb};
-            $self->$cb("$socket") if $cb;
-        }
-    }
+  $_->stop for values %{$self->{acceptors} || {}};
 }
 
-sub _error {
-    my ($self, $id, $error) = @_;
-
-    # Get error callback
-    my $event = $self->_connections->{$id}->{error};
-
-    # Cleanup
-    $self->drop($id);
-
-    # No event
-    return unless $event;
-
-    # Default error
-    $error ||= 'Connection error on poll layer.';
-
-    # Error callback
-    $self->$event($id, $error);
+sub _recurring {
+  my $self = shift;
+  $self->{accept} ||= $self->recurring($self->accept_interval => \&_accepting);
+  $self->{stop} ||= $self->recurring(1 => \&_stop);
 }
 
-sub _hup {
-    my ($self, $id) = @_;
+sub _remove {
+  my ($self, $id) = @_;
 
-    # Get hup callback
-    my $event = $self->_connections->{$id}->{hup};
+  # Timer
+  return unless my $reactor = $self->reactor;
+  return if $reactor->remove($id);
 
-    # Cleanup
-    $self->drop($id);
+  # Acceptor
+  if (delete $self->{acceptors}{$id}) { $self->_not_accepting }
 
-    # No event
-    return unless $event;
-
-    # HUP callback
-    $self->$event($id);
+  # Connection
+  else { delete $self->{connections}{$id} }
 }
 
-sub _prepare {
-    my $self = shift;
-
-    # Check timeouts
-    my $c = $self->_connections;
-    for my $id (keys %$c) {
-
-        # Drop if buffer is empty
-        $self->drop($id)
-          and next
-          if $c->{$id}->{finish}
-              && (!$c->{$id}->{buffer} || !$c->{$id}->{buffer}->size);
-
-        # Read only
-        $self->not_writing($id) if delete $c->{$id}->{read_only};
-
-        # Timeout
-        my $timeout = $c->{$id}->{timeout} || 15;
-
-        # Last active
-        my $time = $c->{$id}->{time} ||= time;
-
-        # HUP
-        $self->_hup($id) if (time - $time) >= $timeout;
-    }
+sub _stop {
+  my $self = shift;
+  return      if keys %{$self->{connections}};
+  $self->stop if $self->max_connections == 0;
+  return      if keys %{$self->{acceptors}};
+  $self->{$_} && $self->_remove(delete $self->{$_}) for qw(accept stop);
 }
 
-sub _read {
-    my ($self, $id) = @_;
+sub _stream {
+  my ($self, $stream, $id) = @_;
 
-    # New connection
-    if ($self->_listen && $id eq $self->_listen) {
+  # Make sure timers are running
+  $self->_recurring;
 
-        # Accept
-        my $socket = $self->_listen->accept or return;
-        push @{$self->_accepted}, [$socket, time];
+  # Connect stream with reactor
+  $self->{connections}{$id}{stream} = $stream;
+  weaken $stream->reactor($self->reactor)->{reactor};
+  weaken $self;
+  $stream->on(close => sub { $self && $self->_remove($id) });
+  $stream->start;
 
-        # Add connection
-        $self->_connections->{$socket} =
-          {buffer => Mojo::Buffer->new, client => 1, socket => $socket};
-
-        # Client counter
-        $self->clients($self->clients + 1);
-
-        # Accept callback
-        $self->accept_cb->($self, "$socket");
-
-        # Unlock
-        $self->unlock_cb->($self);
-
-        return;
-    }
-
-    # Conenction
-    my $c = $self->_connections->{$id};
-
-    # Read chunk
-    my $read = $c->{socket}->sysread(my $buffer, CHUNK_SIZE, 0);
-
-    # Read error
-    return $self->_error($id)
-      unless defined $read && defined $buffer && length $buffer;
-
-    # Get read callback
-    return unless my $event = $c->{read};
-
-    # Read callback
-    $self->$event($id, $buffer);
-
-    # Time
-    $c->{time} = time;
+  return $id;
 }
 
-sub _spin {
-    my $self = shift;
-
-    # Listening?
-    my $poll      = $self->_poll;
-    my $listening = 1
-      if $self->_listen && $self->clients < $self->max_clients;
-    my $cs = keys %{$self->_connections};
-    if ($listening && $self->lock_cb->($self, !$cs)) {
-        $poll->mask($self->_listen, POLLIN);
-    }
-    elsif ($self->_listen) { $poll->remove($self->_listen) }
-
-    # Accept
-    $self->_accept;
-
-    # Connect
-    $self->_connect if $self->connecting;
-
-    # Prepare
-    $self->_prepare;
-
-    # Nothing to do
-    return $self->_running(0)
-      unless $poll->handles || $self->_listen || $self->connecting;
-
-    # Poll
-    $poll->poll($self->timeout);
-
-    # Error
-    $self->_error("$_") for $poll->handles(POLLERR);
-
-    # HUP
-    $self->_hup("$_") for $poll->handles(POLLHUP);
-
-    # Read
-    $self->_read("$_") for $poll->handles(POLLIN);
-
-    # Write
-    $self->_write("$_") for $poll->handles(POLLOUT);
-}
-
-sub _write {
-    my ($self, $id) = @_;
-
-    # Connection
-    my $c = $self->_connections->{$id};
-
-    # Connect has just completed
-    return if $c->{connecting};
-
-    # Buffer
-    my $buffer = $c->{buffer};
-
-    # Try to fill the buffer before writing
-    while ($buffer->size < CHUNK_SIZE && !$c->{read_only} && !$c->{finish}) {
-
-        # No write callback
-        last unless my $event = $c->{write};
-
-        # Write callback
-        my $chunk = $self->$event($id);
-
-        # Done for now
-        last unless defined $chunk && length $chunk;
-
-        # Add to buffer
-        $buffer->add_chunk($chunk);
-    }
-
-    # Try to write whole buffer
-    my $chunk = $buffer->to_string;
-
-    # Write
-    my $written = $c->{socket}->syswrite($chunk, length $chunk);
-
-    # Write error
-    return $self->_error($id) unless defined $written;
-
-    # Remove written chunk from buffer
-    $buffer->remove($written);
-
-    # Time
-    $c->{time} = time;
+sub _timer {
+  my ($self, $method, $after, $cb) = (_instance(shift), @_);
+  weaken $self;
+  return $self->reactor->$method($after => sub { $self->$cb });
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
-Mojo::IOLoop - IO Loop
+Mojo::IOLoop - Minimalistic event loop
 
 =head1 SYNOPSIS
 
-    use Mojo::IOLoop;
+  use Mojo::IOLoop;
 
-    # Create loop and listen on port 3000
-    my $loop = Mojo::IOLoop->new;
-    $loop->listen(port => 3000);
+  # Listen on port 3000
+  Mojo::IOLoop->server({port => 3000} => sub {
+    my ($loop, $stream) = @_;
 
-    # Accept connections
-    $loop->accept_cb(sub {
-        my ($self, $id) = @_;
+    $stream->on(read => sub {
+      my ($stream, $bytes) = @_;
 
-        # Incoming data
-        $self->read_cb($id => sub {
-            my ($self, $id, $chunk) = @_;
+      # Process input chunk
+      say $bytes;
 
-            # Got some data, time to write
-            $self->writing($id);
-        });
+      # Write response
+      $stream->write('HTTP/1.1 200 OK');
+    });
+  });
 
-        # Ready to write
-        $self->write_cb($id => sub {
-            my ($self, $id) = @_;
+  # Connect to port 3000
+  my $id = Mojo::IOLoop->client({port => 3000} => sub {
+    my ($loop, $err, $stream) = @_;
 
-            # Back to reading only
-            $self->not_writing($id);
+    $stream->on(read => sub {
+      my ($stream, $bytes) = @_;
 
-            # The loop will take care of buffering for us
-            return 'HTTP/1.1 200 OK';
-        });
+      # Process input
+      say "Input: $bytes";
     });
 
-    # Start and stop loop
-    $loop->start;
-    $loop->stop;
+    # Write request
+    $stream->write("GET / HTTP/1.1\x0d\x0a\x0d\x0a");
+  });
+
+  # Add a timer
+  Mojo::IOLoop->timer(5 => sub {
+    my $loop = shift;
+    $loop->remove($id);
+  });
+
+  # Start event loop if necessary
+  Mojo::IOLoop->start unless Mojo::IOLoop->is_running;
 
 =head1 DESCRIPTION
 
-L<Mojo::IOLoop> is a general purpose IO loop for TCP clients and servers,
-easy to subclass and extend.
+L<Mojo::IOLoop> is a very minimalistic event loop based on L<Mojo::Reactor>,
+it has been reduced to the absolute minimal feature set required to build
+solid and scalable non-blocking TCP clients and servers.
 
-=head2 ATTRIBUTES
+Depending on operating system, the default per-process and system-wide file
+descriptor limits are often very low and need to be tuned for better
+scalability. The C<LIBEV_FLAGS> environment variable should also be used to
+select the best possible L<EV> backend, which usually defaults to the not very
+scalable C<select>.
+
+  LIBEV_FLAGS=1   # select
+  LIBEV_FLAGS=2   # poll
+  LIBEV_FLAGS=4   # epoll (Linux)
+  LIBEV_FLAGS=8   # kqueue (*BSD, OS X)
+
+The event loop will be resilient to time jumps if a monotonic clock is
+available through L<Time::HiRes>. A TLS certificate and key are also built
+right in, to make writing test servers as easy as possible. Also note that for
+convenience the C<PIPE> signal will be set to C<IGNORE> when L<Mojo::IOLoop>
+is loaded.
+
+For better scalability (epoll, kqueue) and to provide IPv6, SOCKS5 as well as
+TLS support, the optional modules L<EV> (4.0+), L<IO::Socket::IP> (0.20+),
+L<IO::Socket::Socks> (0.64+) and L<IO::Socket::SSL> (1.84+) will be used
+automatically if they are installed. Individual features can also be disabled
+with the C<MOJO_NO_IPV6>, C<MOJO_NO_SOCKS> and C<MOJO_NO_TLS> environment
+variables.
+
+See L<Mojolicious::Guides::Cookbook/"REAL-TIME WEB"> for more.
+
+=head1 ATTRIBUTES
 
 L<Mojo::IOLoop> implements the following attributes.
 
-=head2 C<accept_cb>
+=head2 accept_interval
 
-    my $cb = $loop->accept_cb;
-    $loop  = $loop->accept_cb(sub { ... });
+  my $interval = $loop->accept_interval;
+  $loop        = $loop->accept_interval(0.5);
 
-=head2 C<accept_timeout>
+Interval in seconds for trying to reacquire the accept mutex, defaults to
+C<0.025>. Note that changing this value can affect performance and idle CPU
+usage.
 
-    my $timeout = $loop->accept_timeout;
-    $loop       = $loop->accept_timeout(5);
+=head2 lock
 
-=head2 C<clients>
+  my $cb = $loop->lock;
+  $loop  = $loop->lock(sub {...});
 
-    my $clients = $loop->clients;
-    $loop       = $loop->clients(25);
+A callback for acquiring the accept mutex, used to sync multiple server
+processes. The callback should return true or false. Note that exceptions in
+this callback are not captured.
 
-=head2 C<connect_timeout>
+  $loop->lock(sub {
+    my $blocking = shift;
 
-    my $timeout = $loop->connect_timeout;
-    $loop       = $loop->connect_timeout(5);
+    # Got the accept mutex, start accepting new connections
+    return 1;
+  });
 
-=head2 C<connecting>
+=head2 max_accepts
 
-    my $connecting = $loop->connecting;
-    $loop          = $loop->connecting(25);
+  my $max = $loop->max_accepts;
+  $loop   = $loop->max_accepts(1000);
 
-=head2 C<lock_cb>
+The maximum number of connections this event loop is allowed to accept before
+shutting down gracefully without interrupting existing connections, defaults
+to C<0>. Setting the value to C<0> will allow this event loop to accept new
+connections indefinitely. Note that up to half of this value can be subtracted
+randomly to improve load balancing between multiple server processes.
 
-    my $cb = $loop->lock_cb;
-    $loop  = $loop->lock_cb(sub { ... });
+=head2 max_connections
 
-=head2 C<max_clients>
+  my $max = $loop->max_connections;
+  $loop   = $loop->max_connections(1000);
 
-    my $max = $loop->max_clients;
-    $loop   = $loop->max_clients(1000);
+The maximum number of concurrent connections this event loop is allowed to
+handle before stopping to accept new incoming connections, defaults to
+C<1000>. Setting the value to C<0> will make this event loop stop accepting
+new connections and allow it to shut down gracefully without interrupting
+existing connections.
 
-=head2 C<servers>
+=head2 multi_accept
 
-    my $servers = $loop->servers;
-    $loop       = $loop->servers(25);
+  my $multi = $loop->multi_accept;
+  $loop     = $loop->multi_accept(100);
 
-=head2 C<unlock_cb>
+Number of connections to accept at once, defaults to C<50>.
 
-    my $cb = $loop->unlock_cb;
-    $loop  = $loop->unlock_cb(sub { ... });
+=head2 reactor
 
-=head2 C<timeout>
+  my $reactor = $loop->reactor;
+  $loop       = $loop->reactor(Mojo::Reactor->new);
 
-    my $timeout = $loop->timeout;
-    $loop       = $loop->timeout(5);
+Low-level event reactor, usually a L<Mojo::Reactor::Poll> or
+L<Mojo::Reactor::EV> object with a default subscriber to the event
+L<Mojo::Reactor/"error">.
+
+  # Watch if handle becomes readable or writable
+  $loop->reactor->io($handle => sub {
+    my ($reactor, $writable) = @_;
+    say $writable ? 'Handle is writable' : 'Handle is readable';
+  });
+
+  # Change to watching only if handle becomes writable
+  $loop->reactor->watch($handle, 0, 1);
+
+=head2 unlock
+
+  my $cb = $loop->unlock;
+  $loop  = $loop->unlock(sub {...});
+
+A callback for releasing the accept mutex, used to sync multiple server
+processes. Note that exceptions in this callback are not captured.
 
 =head1 METHODS
 
 L<Mojo::IOLoop> inherits all methods from L<Mojo::Base> and implements the
 following new ones.
 
-=head2 C<new>
+=head2 acceptor
 
-    my $loop = Mojo::IOLoop->new;
+  my $server = Mojo::IOLoop->acceptor($id);
+  my $server = $loop->acceptor($id);
+  my $id     = $loop->acceptor(Mojo::IOLoop::Server->new);
 
-=head2 C<connect>
+Get L<Mojo::IOLoop::Server> object for id or turn object into an acceptor.
 
-    my $c = $loop->connect(
-        address => '127.0.0.1',
-        port    => 3000,
-        cb      => sub {...}
-    );
-    my $c = $loop->connect({
-        address => '127.0.0.1',
-        port    => 3000,
-        cb      => sub {...}
+=head2 client
+
+  my $id
+    = Mojo::IOLoop->client(address => '127.0.0.1', port => 3000, sub {...});
+  my $id = $loop->client(address => '127.0.0.1', port => 3000, sub {...});
+  my $id = $loop->client({address => '127.0.0.1', port => 3000} => sub {...});
+
+Open TCP connection with L<Mojo::IOLoop::Client>, takes the same arguments as
+L<Mojo::IOLoop::Client/"connect">.
+
+  # Connect to localhost on port 3000
+  Mojo::IOLoop->client({port => 3000} => sub {
+    my ($loop, $err, $stream) = @_;
+    ...
+  });
+
+=head2 delay
+
+  my $delay = Mojo::IOLoop->delay;
+  my $delay = $loop->delay;
+  my $delay = $loop->delay(sub {...});
+  my $delay = $loop->delay(sub {...}, sub {...});
+
+Build L<Mojo::IOLoop::Delay> object to manage callbacks and control the flow
+of events for this event loop, which can help you avoid deep nested closures
+and memory leaks that often result from continuation-passing style. Callbacks
+will be passed along to L<Mojo::IOLoop::Delay/"steps">.
+
+  # Synchronize multiple events
+  my $delay = Mojo::IOLoop->delay(sub { say 'BOOM!' });
+  for my $i (1 .. 10) {
+    my $end = $delay->begin;
+    Mojo::IOLoop->timer($i => sub {
+      say 10 - $i;
+      $end->();
     });
+  }
+  $delay->wait;
 
-=head2 C<connection_timeout>
+  # Sequentialize multiple events
+  Mojo::IOLoop->delay(
 
-    my $timeout = $loop->connection_timeout($id);
-    $loop       = $loop->connection_timeout($id => 45);
+    # First step (simple timer)
+    sub {
+      my $delay = shift;
+      Mojo::IOLoop->timer(2 => $delay->begin);
+      say 'Second step in 2 seconds.';
+    },
 
-=head2 C<drop>
+    # Second step (concurrent timers)
+    sub {
+      my $delay = shift;
+      Mojo::IOLoop->timer(1 => $delay->begin);
+      Mojo::IOLoop->timer(3 => $delay->begin);
+      say 'Third step in 3 seconds.';
+    },
 
-    $loop = $loop->drop($id);
+    # Third step (the end)
+    sub { say 'And done after 5 seconds total.' }
+  )->wait;
 
-=head2 C<error_cb>
+  # Handle exceptions in all steps
+  Mojo::IOLoop->delay(
+    sub {
+      my $delay = shift;
+      die 'Intentional error';
+    },
+    sub {
+      my ($delay, @args) = @_;
+      say 'Never actually reached.';
+    }
+  )->catch(sub {
+    my ($delay, $err) = @_;
+    say "Something went wrong: $err";
+  })->wait;
 
-    $loop = $loop->error_cb($id => sub { ... });
+=head2 is_running
 
-=head2 C<finish>
+  my $bool = Mojo::IOLoop->is_running;
+  my $bool = $loop->is_running;
 
-    $loop = $loop->finish($id);
+Check if event loop is running.
 
-=head2 C<hup_cb>
+  exit unless Mojo::IOLoop->is_running;
 
-    $loop = $loop->hup_cb($id => sub { ... });
+=head2 next_tick
 
-=head2 C<listen>
+  my $undef = Mojo::IOLoop->next_tick(sub {...});
+  my $undef = $loop->next_tick(sub {...});
 
-    $loop->listen(port => 3000);
-    $loop->listen({port => 3000});
+Invoke callback as soon as possible, but not before returning, always returns
+C<undef>.
 
-=head2 C<local_info>
+  # Perform operation on next reactor tick
+  Mojo::IOLoop->next_tick(sub {
+    my $loop = shift;
+    ...
+  });
 
-    my $info = $loop->local_info($id);
+=head2 one_tick
 
-=head2 C<not_writing>
+  Mojo::IOLoop->one_tick;
+  $loop->one_tick;
 
-    $loop->not_writing($id);
+Run event loop until an event occurs. Note that this method can recurse back
+into the reactor, so you need to be careful.
 
-=head2 C<read_cb>
+  # Don't block longer than 0.5 seconds
+  my $id = Mojo::IOLoop->timer(0.5 => sub {});
+  Mojo::IOLoop->one_tick;
+  Mojo::IOLoop->remove($id);
 
-    $loop = $loop->read_cb($id => sub { ... });
+=head2 recurring
 
-=head2 C<remote_info>
+  my $id = Mojo::IOLoop->recurring(3 => sub {...});
+  my $id = $loop->recurring(0 => sub {...});
+  my $id = $loop->recurring(0.25 => sub {...});
 
-    my $info = $loop->remote_info($id);
+Create a new recurring timer, invoking the callback repeatedly after a given
+amount of time in seconds.
 
-=head2 C<start>
+  # Perform operation every 5 seconds
+  Mojo::IOLoop->recurring(5 => sub {
+    my $loop = shift;
+    ...
+  });
 
-    $loop->start;
+=head2 remove
 
-=head2 C<stop>
+  Mojo::IOLoop->remove($id);
+  $loop->remove($id);
 
-    $loop->stop;
+Remove anything with an id, connections will be dropped gracefully by allowing
+them to finish writing all data in their write buffers.
 
-=head2 C<write_cb>
+=head2 reset
 
-    $loop = $loop->write_cb($id => sub { ... });
+  Mojo::IOLoop->reset;
+  $loop->reset;
 
-=head2 C<writing>
+Remove everything and stop the event loop.
 
-    $loop->writing($id);
+=head2 server
+
+  my $id = Mojo::IOLoop->server(port => 3000, sub {...});
+  my $id = $loop->server(port => 3000, sub {...});
+  my $id = $loop->server({port => 3000} => sub {...});
+
+Accept TCP connections with L<Mojo::IOLoop::Server>, takes the same arguments
+as L<Mojo::IOLoop::Server/"listen">.
+
+  # Listen on port 3000
+  Mojo::IOLoop->server({port => 3000} => sub {
+    my ($loop, $stream, $id) = @_;
+    ...
+  });
+
+  # Listen on random port
+  my $id = Mojo::IOLoop->server({address => '127.0.0.1'} => sub {
+    my ($loop, $stream, $id) = @_;
+    ...
+  });
+  my $port = Mojo::IOLoop->acceptor($id)->handle->sockport;
+
+=head2 singleton
+
+  my $loop = Mojo::IOLoop->singleton;
+
+The global L<Mojo::IOLoop> singleton, used to access a single shared event
+loop object from everywhere inside the process.
+
+  # Many methods also allow you to take shortcuts
+  Mojo::IOLoop->timer(2 => sub { Mojo::IOLoop->stop });
+  Mojo::IOLoop->start;
+
+  # Restart active timer
+  my $id = Mojo::IOLoop->timer(3 => sub { say 'Timeout!' });
+  Mojo::IOLoop->singleton->reactor->again($id);
+
+=head2 start
+
+  Mojo::IOLoop->start;
+  $loop->start;
+
+Start the event loop, this will block until L</"stop"> is called. Note that
+some reactors stop automatically if there are no events being watched anymore.
+
+  # Start event loop only if it is not running already
+  Mojo::IOLoop->start unless Mojo::IOLoop->is_running;
+
+=head2 stop
+
+  Mojo::IOLoop->stop;
+  $loop->stop;
+
+Stop the event loop, this will not interrupt any existing connections and the
+event loop can be restarted by running L</"start"> again.
+
+=head2 stream
+
+  my $stream = Mojo::IOLoop->stream($id);
+  my $stream = $loop->stream($id);
+  my $id     = $loop->stream(Mojo::IOLoop::Stream->new);
+
+Get L<Mojo::IOLoop::Stream> object for id or turn object into a connection.
+
+  # Increase inactivity timeout for connection to 300 seconds
+  Mojo::IOLoop->stream($id)->timeout(300);
+
+=head2 timer
+
+  my $id = Mojo::IOLoop->timer(3 => sub {...});
+  my $id = $loop->timer(0 => sub {...});
+  my $id = $loop->timer(0.25 => sub {...});
+
+Create a new timer, invoking the callback after a given amount of time in
+seconds.
+
+  # Perform operation in 5 seconds
+  Mojo::IOLoop->timer(5 => sub {
+    my $loop = shift;
+    ...
+  });
+
+=head1 DEBUGGING
+
+You can set the C<MOJO_IOLOOP_DEBUG> environment variable to get some advanced
+diagnostics information printed to C<STDERR>.
+
+  MOJO_IOLOOP_DEBUG=1
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

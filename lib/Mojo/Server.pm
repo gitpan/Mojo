@@ -1,145 +1,233 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::Server;
-
-use strict;
-use warnings;
-
-use base 'Mojo::Base';
+use Mojo::Base 'Mojo::EventEmitter';
 
 use Carp 'croak';
 use Mojo::Loader;
+use Mojo::Util 'md5_sum';
+use POSIX;
+use Scalar::Util 'blessed';
 
-use constant RELOAD => $ENV{MOJO_RELOAD} || 0;
+has app => sub { shift->build_app('Mojo::HelloWorld') };
+has [qw(group user)];
+has reverse_proxy => sub { $ENV{MOJO_REVERSE_PROXY} };
 
-__PACKAGE__->attr(
-    app => sub {
-        my $self = shift;
+sub build_app {
+  my ($self, $app) = @_;
+  local $ENV{MOJO_EXE};
+  return $app->new unless my $e = Mojo::Loader->new->load($app);
+  die ref $e ? $e : qq{Can't find application class "$app" in \@INC. (@INC)\n};
+}
 
-        # Load
-        if (my $e = Mojo::Loader->load($self->app_class)) {
-            die $e if ref $e;
-        }
+sub build_tx {
+  my $self = shift;
+  my $tx   = $self->app->build_tx;
+  $tx->req->reverse_proxy(1) if $self->reverse_proxy;
+  return $tx;
+}
 
-        return $self->app_class->new;
-    }
-);
-__PACKAGE__->attr(app_class => sub { $ENV{MOJO_APP} ||= 'Mojo::HelloWorld' });
-__PACKAGE__->attr(
-    build_tx_cb => sub {
-        sub {
-            my $self = shift;
+sub daemonize {
 
-            # Reload
-            if (RELOAD) {
-                if (my $e = Mojo::Loader->reload) { warn $e }
-                delete $self->{app};
-            }
+  # Fork and kill parent
+  die "Can't fork: $!" unless defined(my $pid = fork);
+  exit 0 if $pid;
+  POSIX::setsid or die "Can't start a new session: $!";
 
-            return $self->app->build_tx_cb->($self->app);
-          }
-    }
-);
-__PACKAGE__->attr(
-    continue_handler_cb => sub {
-        sub {
-            my ($self, $tx) = @_;
-            if ($self->app->can('continue_handler')) {
-                $self->app->continue_handler($tx);
+  # Close filehandles
+  open STDIN,  '</dev/null';
+  open STDOUT, '>/dev/null';
+  open STDERR, '>&STDOUT';
+}
 
-                # Close connection to prevent potential race condition
-                unless ($tx->res->code == 100) {
-                    $tx->keep_alive(0);
-                    $tx->res->headers->connection('Close');
-                }
-            }
-            else { $tx->res->code(100) }
-        };
-    }
-);
-__PACKAGE__->attr(
-    handler_cb => sub {
-        sub { shift->app->handler(shift) }
-    }
-);
+sub load_app {
+  my ($self, $path) = @_;
 
-# Are you saying you're never going to eat any animal again? What about bacon?
-# No.
-# Ham?
-# No.
-# Pork chops?
-# Dad, those all come from the same animal.
-# Heh heh heh. Ooh, yeah, right, Lisa. A wonderful, magical animal.
+  # Clean environment (reset FindBin defensively)
+  {
+    local $0 = $path;
+    require FindBin;
+    FindBin->again;
+    local $ENV{MOJO_APP_LOADER} = 1;
+    local $ENV{MOJO_EXE};
+
+    # Try to load application from script into sandbox
+    my $app = eval "package Mojo::Server::Sandbox::@{[md5_sum $path]};"
+      . 'return do($path) || die($@ || $!);';
+    die qq{Can't load application from file "$path": $@} if !$app && $@;
+    die qq{File "$path" did not return an application object.\n}
+      unless blessed $app && $app->isa('Mojo');
+    $self->app($app);
+  };
+  FindBin->again;
+
+  return $self->app;
+}
+
+sub new {
+  my $self = shift->SUPER::new(@_);
+  $self->on(request => sub { shift->app->handler(shift) });
+  return $self;
+}
+
 sub run { croak 'Method "run" not implemented by subclass' }
 
+sub setuidgid {
+  my $self = shift;
+
+  # Group
+  if (my $group = $self->group) {
+    return $self->_log(qq{Group "$group" does not exist.})
+      unless defined(my $gid = getgrnam $group);
+    return $self->_log(qq{Can't switch to group "$group": $!})
+      unless POSIX::setgid($gid);
+  }
+
+  # User
+  return $self unless my $user = $self->user;
+  return $self->_log(qq{User "$user" does not exist.})
+    unless defined(my $uid = getpwnam $user);
+  return $self->_log(qq{Can't switch to user "$user": $!})
+    unless POSIX::setuid($uid);
+
+  return $self;
+}
+
+sub _log { $_[0]->app->log->error($_[1]) and return $_[0] }
+
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
-Mojo::Server - HTTP Server Base Class
+Mojo::Server - HTTP server base class
 
 =head1 SYNOPSIS
 
-    use base 'Mojo::Server';
+  package Mojo::Server::MyServer;
+  use Mojo::Base 'Mojo::Server';
 
-    sub run {
-        my $self = shift;
+  sub run {
+    my $self = shift;
 
-        # Get a transaction
-        my $tx = $self->build_tx_cb->($self);
+    # Get a transaction
+    my $tx = $self->build_tx;
 
-        # Call the handler
-        $tx = $self->handler_cb->($self);
-    }
+    # Emit "request" event
+    $self->emit(request => $tx);
+  }
 
 =head1 DESCRIPTION
 
-L<Mojo::Server> is a HTTP server base class.
+L<Mojo::Server> is an abstract HTTP server base class.
+
+=head1 EVENTS
+
+L<Mojo::Server> inherits all events from L<Mojo::EventEmitter> and can emit
+the following new ones.
+
+=head2 request
+
+  $server->on(request => sub {
+    my ($server, $tx) = @_;
+    ...
+  });
+
+Emitted when a request is ready and needs to be handled.
+
+  $server->unsubscribe('request');
+  $server->on(request => sub {
+    my ($server, $tx) = @_;
+    $tx->res->code(200);
+    $tx->res->headers->content_type('text/plain');
+    $tx->res->body('Hello World!');
+    $tx->resume;
+  });
 
 =head1 ATTRIBUTES
 
 L<Mojo::Server> implements the following attributes.
 
-=head2 C<app>
+=head2 app
 
-    my $app = $server->app;
-    $server = $server->app(MojoSubclass->new);
+  my $app = $server->app;
+  $server = $server->app(MojoSubclass->new);
 
-=head2 C<app_class>
+Application this server handles, defaults to a L<Mojo::HelloWorld> object.
 
-    my $app_class = $server->app_class;
-    $server       = $server->app_class('MojoSubclass');
+=head2 group
 
-=head2 C<build_tx_cb>
+  my $group = $server->group;
+  $server   = $server->group('users');
 
-    my $btx = $server->build_tx_cb;
-    $server = $server->build_tx_cb(sub {
-        my $self = shift;
-        return Mojo::Transaction::Single->new;
-    });
+Group for server process.
 
-=head2 C<continue_handler_cb>
+=head2 reverse_proxy
 
-    my $handler = $server->continue_handler_cb;
-    $server     = $server->continue_handler_cb(sub {
-        my ($self, $tx) = @_;
-    });
+  my $bool = $server->reverse_proxy;
+  $server  = $server->reverse_proxy($bool);
 
-=head2 C<handler_cb>
+This server operates behind a reverse proxy, defaults to the value of the
+C<MOJO_REVERSE_PROXY> environment variable.
 
-    my $handler = $server->handler_cb;
-    $server     = $server->handler_cb(sub {
-        my ($self, $tx) = @_;
-    });
+=head2 user
+
+  my $user = $server->user;
+  $server  = $server->user('web');
+
+User for the server process.
 
 =head1 METHODS
 
-L<Mojo::Server> inherits all methods from L<Mojo::Base> and implements the
-following new ones.
+L<Mojo::Server> inherits all methods from L<Mojo::EventEmitter> and implements
+the following new ones.
 
-=head2 C<run>
+=head2 build_app
 
-    $server->run;
+  my $app = $server->build_app('Mojo::HelloWorld');
+
+Build application from class.
+
+=head2 build_tx
+
+  my $tx = $server->build_tx;
+
+Let application build a transaction.
+
+=head2 daemonize
+
+  $server->daemonize;
+
+Daemonize server process.
+
+=head2 load_app
+
+  my $app = $server->load_app('/home/sri/myapp.pl');
+
+Load application from script.
+
+  say Mojo::Server->new->load_app('./myapp.pl')->home;
+
+=head2 new
+
+  my $server = Mojo::Server->new;
+
+Construct a new L<Mojo::Server> object and subscribe to L</"request"> event
+with default request handling.
+
+=head2 run
+
+  $server->run;
+
+Run server. Meant to be overloaded in a subclass.
+
+=head2 setuidgid
+
+  $server = $server->setuidgid;
+
+Set L</"user"> and L</"group"> for process.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

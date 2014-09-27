@@ -1,447 +1,297 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::JSON;
+use Mojo::Base -base;
 
-use strict;
-use warnings;
+use B;
+use Carp 'croak';
+use Exporter 'import';
+use Mojo::Util;
+use Scalar::Util 'blessed';
 
-use base 'Mojo::Base';
+has 'error';
 
-use Mojo::ByteStream 'b';
-
-__PACKAGE__->attr('error');
+our @EXPORT_OK = qw(decode_json encode_json j);
 
 # Literal names
-our $FALSE = Mojo::JSON::_Bool->new(0);
-our $TRUE  = Mojo::JSON::_Bool->new(1);
+my $FALSE = bless \(my $false = 0), 'Mojo::JSON::_Bool';
+my $TRUE  = bless \(my $true  = 1), 'Mojo::JSON::_Bool';
 
-# Regex
-my $WHITESPACE_RE  = qr/[\x20\x09\x0a\x0d]*/;
-my $ARRAY_BEGIN_RE = qr/^$WHITESPACE_RE\[/;
-my $ARRAY_END_RE   = qr/^$WHITESPACE_RE\]/;
-my $ESCAPE_RE      = qr/
-    ([\\\"\/\b\f\n\r\t])   # Special character
-    |
-    ([\x00-\x1f])          # Control character
-/x;
-my $NAME_SEPARATOR_RE = qr/^$WHITESPACE_RE\:/;
-my $NAMES_RE          = qr/^$WHITESPACE_RE(false|null|true)/;
-my $NUMBER_RE         = qr/
-    ^
-    $WHITESPACE_RE
-    (
-    -?                  # Minus
-    (?:0|[1-9]\d*)      # Digits
-    (?:\.\d+)?          # Fraction
-    (?:[eE][+-]?\d+)?   # Exponent
-    )
-/x;
-my $OBJECT_BEGIN_RE = qr/^$WHITESPACE_RE\{/;
-my $OBJECT_END_RE   = qr/^$WHITESPACE_RE\}/;
-my $STRING_RE       = qr/
-    ^
-    $WHITESPACE_RE
-    \"                                    # Quotation mark
-    ((?:
-    \\u[0-9a-fA-F]{4}                     # Escaped unicode character
-    |
-    \\[\"\/\\bfnrt]                       # Escaped special characters
-    |
-    [\x20-\x21\x23-\x5b\x5d-\x{10ffff}]   # Unescaped characters
-    )*)
-    \"                                    # Quotation mark
-/x;
-my $UNESCAPE_RE = qr/
-    (\\[\"\/\\bfnrt])                 # Special character
-    |
-    \\u([dD][89abAB][0-9a-fA-F]{2})   # High surrogate
-    \\u([dD][c-fC-F][0-9a-fA-F]{2})   # Low surrogate
-    |
-    \\u([0-9a-fA-F]{4})               # Unicode character
-/x;
-my $VALUE_SEPARATOR_RE = qr/^$WHITESPACE_RE\,/;
+# Escaped special character map (with u2028 and u2029)
+my %ESCAPE = (
+  '"'     => '"',
+  '\\'    => '\\',
+  '/'     => '/',
+  'b'     => "\x08",
+  'f'     => "\x0c",
+  'n'     => "\x0a",
+  'r'     => "\x0d",
+  't'     => "\x09",
+  'u2028' => "\x{2028}",
+  'u2029' => "\x{2029}"
+);
+my %REVERSE = map { $ESCAPE{$_} => "\\$_" } keys %ESCAPE;
+for (0x00 .. 0x1f) { $REVERSE{pack 'C', $_} //= sprintf '\u%.4X', $_ }
 
-# Escaped special character map
-my $ESCAPE = {
-    '\"' => "\x22",
-    '\\' => "\x5c",
-    '\/' => "\x2f",
-    '\b' => "\x8",
-    '\f' => "\xC",
-    '\n' => "\xA",
-    '\r' => "\xD",
-    '\t' => "\x9"
-};
-my $REVERSE_ESCAPE = {};
-for my $key (keys %$ESCAPE) { $REVERSE_ESCAPE->{$ESCAPE->{$key}} = $key }
-
-# Byte order marks
-my $BOM_RE = qr/
-    (?:
-    \357\273\277   # UTF-8
-    |
-    \377\376\0\0   # UTF-32LE
-    |
-    \0\0\376\377   # UTF-32BE
-    |
-    \376\377       # UTF-16BE
-    |
-    \377\376       # UTF-16LE
-    )
-/x;
-
-# Unicode encoding detection
-my $UTF_PATTERNS = {
-    "\0\0\0[^\0]"    => 'UTF-32BE',
-    "\0[^\0]\0[^\0]" => 'UTF-16BE',
-    "[^\0]\0\0\0"    => 'UTF-32LE',
-    "[^\0]\0[^\0]\0" => 'UTF-16LE'
-};
-
-# Hey...That's not the wallet inspector...
 sub decode {
-    my ($self, $string) = @_;
-
-    # Shortcut
-    return unless $string;
-
-    # Cleanup
-    $self->error(undef);
-
-    # Remove BOM
-    $string =~ s/$BOM_RE//g;
-
-    # Detect and decode unicode
-    my $encoding = 'UTF-8';
-    for my $pattern (keys %$UTF_PATTERNS) {
-        if ($string =~ /^$pattern/) {
-            $encoding = $UTF_PATTERNS->{$pattern};
-            last;
-        }
-    }
-    $string = b($string)->decode($encoding)->to_string;
-
-    # Decode
-    my $result = $self->_decode_structure(\$string);
-
-    # Exception
-    return if $self->error;
-
-    # Bad input
-    $self->error('JSON text has to be a serialized object or array.')
-      and return
-      unless ref $result->[0];
-
-    # Done
-    return $result->[0];
+  my $self = shift->error(undef);
+  my $value;
+  return $value if eval { $value = _decode(shift); 1 };
+  $self->error(_chomp($@));
+  return undef;
 }
 
-sub encode {
-    my ($self, $ref) = @_;
-
-    # Encode
-    my $string = $self->_encode_values($ref);
-
-    # Unicode
-    return b($string)->encode('UTF-8')->to_string;
+sub decode_json {
+  my $value;
+  return eval { $value = _decode(shift); 1 } ? $value : croak _chomp($@);
 }
+
+sub encode { encode_json($_[1]) }
+
+sub encode_json { Mojo::Util::encode 'UTF-8', _encode_value(shift) }
 
 sub false {$FALSE}
 
+sub j {
+  return encode_json($_[0]) if ref $_[0] eq 'ARRAY' || ref $_[0] eq 'HASH';
+  return eval { _decode($_[0]) };
+}
+
 sub true {$TRUE}
 
+sub _chomp { chomp $_[0] ? $_[0] : $_[0] }
+
+sub _decode {
+
+  # Missing input
+  die "Missing or empty input\n" unless length(my $bytes = shift);
+
+  # Wide characters
+  die "Wide character in input\n" unless utf8::downgrade($bytes, 1);
+
+  # UTF-8
+  die "Input is not UTF-8 encoded\n"
+    unless defined(local $_ = Mojo::Util::decode('UTF-8', $bytes));
+
+  # Value
+  my $value = _decode_value();
+
+  # Leftover data
+  _exception('Unexpected data') unless m/\G[\x20\x09\x0a\x0d]*\z/gc;
+
+  return $value;
+}
+
 sub _decode_array {
-    my ($self, $ref) = @_;
+  my @array;
+  until (m/\G[\x20\x09\x0a\x0d]*\]/gc) {
 
-    # New array
-    my $array = [];
+    # Value
+    push @array, _decode_value();
 
-    # Decode array
-    while ($$ref) {
+    # Separator
+    redo if m/\G[\x20\x09\x0a\x0d]*,/gc;
 
-        # Separator
-        next if $$ref =~ s/$VALUE_SEPARATOR_RE//;
+    # End
+    last if m/\G[\x20\x09\x0a\x0d]*\]/gc;
 
-        # End
-        return $array if $$ref =~ s/$ARRAY_END_RE//;
+    # Invalid character
+    _exception('Expected comma or right square bracket while parsing array');
+  }
 
-        # Value
-        if (my $values = $self->_decode_values($ref)) {
-            push @$array, @$values;
-        }
-
-        # Invalid format
-        else { return $self->_exception($ref) }
-
-    }
-
-    # Exception
-    return $self->_exception($ref, 'Missing right square bracket');
-}
-
-sub _decode_names {
-    my ($self, $ref) = @_;
-
-    # Name found
-    if ($$ref =~ s/$NAMES_RE//) { return $1 }
-
-    # No number
-    return;
-}
-
-sub _decode_number {
-    my ($self, $ref) = @_;
-
-    # Number found
-    if ($$ref =~ s/$NUMBER_RE//) { return $1 }
-
-    # No number
-    return;
+  return \@array;
 }
 
 sub _decode_object {
-    my ($self, $ref) = @_;
+  my %hash;
+  until (m/\G[\x20\x09\x0a\x0d]*\}/gc) {
 
-    # New object
-    my $hash = {};
+    # Quote
+    m/\G[\x20\x09\x0a\x0d]*"/gc
+      or _exception('Expected string while parsing object');
 
-    # Decode object
-    my $key;
-    while ($$ref) {
+    # Key
+    my $key = _decode_string();
 
-        # Name separator
-        next if $$ref =~ s/$NAME_SEPARATOR_RE//;
+    # Colon
+    m/\G[\x20\x09\x0a\x0d]*:/gc
+      or _exception('Expected colon while parsing object');
 
-        # Value separator
-        next if $$ref =~ s/$VALUE_SEPARATOR_RE//;
+    # Value
+    $hash{$key} = _decode_value();
 
-        # End
-        return $hash if $$ref =~ s/$OBJECT_END_RE//;
+    # Separator
+    redo if m/\G[\x20\x09\x0a\x0d]*,/gc;
 
-        # Value
-        if (my $values = $self->_decode_values($ref)) {
+    # End
+    last if m/\G[\x20\x09\x0a\x0d]*\}/gc;
 
-            # Value
-            if ($key) {
-                $hash->{$key} = $values->[0];
-                $key = undef;
-            }
+    # Invalid character
+    _exception('Expected comma or right curly bracket while parsing object');
+  }
 
-            # Key
-            else { $key = $values->[0] }
-
-        }
-
-        # Invalid format
-        else { return $self->_exception($ref) }
-
-    }
-
-    # Exception
-    return $self->_exception($ref, 'Missing right curly bracket');
+  return \%hash;
 }
 
 sub _decode_string {
-    my ($self, $ref) = @_;
+  my $pos = pos;
 
-    # String
-    if ($$ref =~ s/$STRING_RE//) {
-        my $string = $1;
+  # Extract string with escaped characters
+  m!\G((?:(?:[^\x00-\x1f\\"]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})){0,32766})*)!gc;
+  my $str = $1;
 
-        # Unescape
-        $string =~ s/$UNESCAPE_RE/_unescape($1, $2, $3, $4)/gex;
+  # Invalid character
+  unless (m/\G"/gc) {
+    _exception('Unexpected character or invalid escape while parsing string')
+      if m/\G[\x00-\x1f\\]/;
+    _exception('Unterminated string');
+  }
 
-        return $string;
+  # Unescape popular characters
+  if (index($str, '\\u') < 0) {
+    $str =~ s!\\(["\\/bfnrt])!$ESCAPE{$1}!gs;
+    return $str;
+  }
+
+  # Unescape everything else
+  my $buffer = '';
+  while ($str =~ m/\G([^\\]*)\\(?:([^u])|u(.{4}))/gc) {
+    $buffer .= $1;
+
+    # Popular character
+    if ($2) { $buffer .= $ESCAPE{$2} }
+
+    # Escaped
+    else {
+      my $ord = hex $3;
+
+      # Surrogate pair
+      if (($ord & 0xf800) == 0xd800) {
+
+        # High surrogate
+        ($ord & 0xfc00) == 0xd800
+          or pos($_) = $pos + pos($str), _exception('Missing high-surrogate');
+
+        # Low surrogate
+        $str =~ m/\G\\u([Dd][C-Fc-f]..)/gc
+          or pos($_) = $pos + pos($str), _exception('Missing low-surrogate');
+
+        $ord = 0x10000 + ($ord - 0xd800) * 0x400 + (hex($1) - 0xdc00);
+      }
+
+      # Character
+      $buffer .= pack 'U', $ord;
     }
+  }
 
-    # No string
-    return;
+  # The rest
+  return $buffer . substr $str, pos($str), length($str);
 }
 
-sub _decode_structure {
-    my ($self, $ref) = @_;
+sub _decode_value {
 
-    # Shortcut
-    return unless $$ref;
+  # Leading whitespace
+  m/\G[\x20\x09\x0a\x0d]*/gc;
 
-    # Object
-    if ($$ref =~ s/$OBJECT_BEGIN_RE//) {
-        return [$self->_decode_object($ref)];
-    }
+  # String
+  return _decode_string() if m/\G"/gc;
 
-    # Array
-    elsif ($$ref =~ s/$ARRAY_BEGIN_RE//) {
-        return [$self->_decode_array($ref)];
-    }
+  # Object
+  return _decode_object() if m/\G\{/gc;
 
-    # Nothing
-    return;
-}
+  # Array
+  return _decode_array() if m/\G\[/gc;
 
-sub _decode_values {
-    my ($self, $ref) = @_;
+  # Number
+  return 0 + $1
+    if m/\G([-]?(?:0|[1-9][0-9]*)(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?)/gc;
 
-    # Number
-    if (defined(my $number = $self->_decode_number($ref))) {
-        return [$number];
-    }
+  # True
+  return $TRUE if m/\Gtrue/gc;
 
-    # String
-    elsif (defined(my $string = $self->_decode_string($ref))) {
-        return [$string];
-    }
+  # False
+  return $FALSE if m/\Gfalse/gc;
 
-    # Name
-    elsif (my $name = $self->_decode_names($ref)) {
+  # Null
+  return undef if m/\Gnull/gc;
 
-        # "false"
-        if ($name eq 'false') { $name = $FALSE }
-
-        # "null"
-        elsif ($name eq 'null') { $name = undef }
-
-        # "true"
-        elsif ($name eq 'true') { $name = $TRUE }
-
-        return [$name];
-    }
-
-    # Object or array
-    return $self->_decode_structure($ref);
+  # Invalid character
+  _exception('Expected string, array, object, number, boolean or null');
 }
 
 sub _encode_array {
-    my ($self, $array) = @_;
-
-    # Values
-    my @array;
-    for my $value (@$array) {
-        push @array, $self->_encode_values($value);
-    }
-
-    # Stringify
-    my $string = join ',', @array;
-    return "[$string]";
+  '[' . join(',', map { _encode_value($_) } @{$_[0]}) . ']';
 }
 
 sub _encode_object {
-    my ($self, $object) = @_;
-
-    # Values
-    my @values;
-    for my $key (keys %$object) {
-        my $name  = $self->_encode_string($key);
-        my $value = $self->_encode_values($object->{$key});
-        push @values, "$name:$value";
-    }
-
-    # Stringify
-    my $string = join ',', @values;
-    return "{$string}";
+  my $object = shift;
+  my @pairs = map { _encode_string($_) . ':' . _encode_value($object->{$_}) }
+    keys %$object;
+  return '{' . join(',', @pairs) . '}';
 }
 
 sub _encode_string {
-    my ($self, $string) = @_;
-
-    # Escape
-    $string =~ s/$ESCAPE_RE/_escape($1, $2)/gex;
-
-    # Stringify
-    return "\"$string\"";
+  my $str = shift;
+  $str =~ s!([\x00-\x1f\x{2028}\x{2029}\\"])!$REVERSE{$1}!gs;
+  return "\"$str\"";
 }
 
-sub _encode_values {
-    my ($self, $value) = @_;
+sub _encode_value {
+  my $value = shift;
 
-    # Reference?
-    if (my $ref = ref $value) {
+  # Reference
+  if (my $ref = ref $value) {
 
-        # Array
-        return $self->_encode_array($value) if $ref eq 'ARRAY';
+    # Object
+    return _encode_object($value) if $ref eq 'HASH';
 
-        # Object
-        return $self->_encode_object($value) if $ref eq 'HASH';
+    # Array
+    return _encode_array($value) if $ref eq 'ARRAY';
+
+    # True or false
+    return $$value ? 'true' : 'false' if $ref eq 'SCALAR';
+    return $value  ? 'true' : 'false' if $ref eq 'Mojo::JSON::_Bool';
+
+    # Blessed reference with TO_JSON method
+    if (blessed $value && (my $sub = $value->can('TO_JSON'))) {
+      return _encode_value($value->$sub);
     }
+  }
 
-    # "null"
-    return 'null' unless defined $value;
+  # Null
+  return 'null' unless defined $value;
 
-    # "false"
-    return 'false' if ref $value eq 'Mojo::JSON::_Bool' && !$value;
+  # Number
+  return $value
+    if B::svref_2object(\$value)->FLAGS & (B::SVp_IOK | B::SVp_NOK)
+    && 0 + $value eq $value
+    && $value * 0 == 0;
 
-    # "true"
-    return 'true' if ref $value eq 'Mojo::JSON::_Bool' && $value;
-
-    # Number
-    return $value if $value =~ /$NUMBER_RE$/;
-
-    # String
-    return $self->_encode_string($value);
-}
-
-sub _escape {
-    my ($special, $control) = @_;
-
-    # Special character
-    if ($special) { return $REVERSE_ESCAPE->{$special} }
-
-    # Control character
-    elsif ($control) { return '\\u00' . unpack('H2', $control) }
-
-    return;
-}
-
-sub _unescape {
-    my ($special, $high, $low, $normal) = @_;
-
-    # Special character
-    if ($special) { return $ESCAPE->{$special} }
-
-    # Normal unicode character
-    elsif ($normal) { return pack('U', hex($normal)) }
-
-    # Surrogate pair
-    elsif ($high && $low) {
-        return pack('U*',
-            (0x10000 + (hex($high) - 0xD800) * 0x400 + (hex($low) - 0xDC00)));
-    }
-
-    return;
+  # String
+  return _encode_string($value);
 }
 
 sub _exception {
-    my ($self, $ref, $error) = @_;
 
-    # Message
-    $error ||= 'Syntax error';
+  # Leading whitespace
+  m/\G[\x20\x09\x0a\x0d]*/gc;
 
-    # Context
-    my $context = substr $$ref, 0, 25;
-    $context = "\"$context\"" if $context;
-    $context ||= 'end of file';
+  # Context
+  my $context = 'Malformed JSON: ' . shift;
+  if (m/\G\z/gc) { $context .= ' before end of data' }
+  else {
+    my @lines = split "\n", substr($_, 0, pos);
+    $context .= ' at line ' . @lines . ', offset ' . length(pop @lines || '');
+  }
 
-    # Error
-    $self->error(qq/$error near $context./) and return;
+  die "$context\n";
 }
 
 # Emulate boolean type
 package Mojo::JSON::_Bool;
-
-use strict;
-use warnings;
-
-use base 'Mojo::Base';
-use overload (
-    '0+' => sub { $_[0]->_value },
-    '""' => sub { $_[0]->_value },
-);
-
-__PACKAGE__->attr('_value');
-
-sub new { shift->SUPER::new(_value => shift) }
+use overload '0+' => sub { ${$_[0]} }, '""' => sub { ${$_[0]} }, fallback => 1;
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
@@ -449,63 +299,120 @@ Mojo::JSON - Minimalistic JSON
 
 =head1 SYNOPSIS
 
-    use Mojo::JSON;
+  use Mojo::JSON qw(decode_json encode_json);
 
-    my $json   = Mojo::JSON->new;
-    my $string = $json->encode({foo => [1, 2], bar => 'hello!'});
-    my $hash   = $json->decode('{"foo": [3, -2, 1]}');
+  # Encode and decode JSON (die on errors)
+  my $bytes = encode_json({foo => [1, 2], bar => 'hello!', baz => \1});
+  my $hash  = decode_json($bytes);
+
+  # Handle errors
+  my $json = Mojo::JSON->new;
+  my $hash = $json->decode($bytes);
+  my $err  = $json->error;
+  say $err ? "Error: $err" : $hash->{message};
 
 =head1 DESCRIPTION
 
-L<Mojo::JSON> is a minimalistic implementation of RFC4627.
+L<Mojo::JSON> is a minimalistic and possibly the fastest pure-Perl
+implementation of L<RFC 7159|http://tools.ietf.org/html/rfc7159>.
 
-It supports normal Perl data types like C<Scalar>, C<Array> and C<Hash>, but
-not blessed references.
+It supports normal Perl data types like scalar, array reference, hash
+reference and will try to call the C<TO_JSON> method on blessed references, or
+stringify them if it doesn't exist. Differentiating between strings and
+numbers in Perl is hard, depending on how it has been used, a scalar can be
+both at the same time. The string value has a higher precedence unless both
+representations are equivalent.
 
-    [1, -2, 3]     -> [1, -2, 3]
-    {"foo": "bar"} -> {foo => 'bar'}
+  [1, -2, 3]     -> [1, -2, 3]
+  {"foo": "bar"} -> {foo => 'bar'}
 
 Literal names will be translated to and from L<Mojo::JSON> constants or a
 similar native Perl value.
 
-    true  -> Mojo::JSON->true
-    false -> Mojo::JSON->false
-    null  -> undef
+  true  -> Mojo::JSON->true
+  false -> Mojo::JSON->false
+  null  -> undef
 
-Decoding UTF-16 (LE/BE) and UTF-32 (LE/BE) will be handled transparently,
-encoding will only generate UTF-8.
+In addition scalar references will be used to generate booleans, based on if
+their values are true or false.
+
+  \1 -> true
+  \0 -> false
+
+The two Unicode whitespace characters C<u2028> and C<u2029> will always be
+escaped to make JSONP easier.
+
+=head1 FUNCTIONS
+
+L<Mojo::JSON> implements the following functions, which can be imported
+individually.
+
+=head2 decode_json
+
+  my $value = decode_json($bytes);
+
+Decode JSON to Perl value and die if decoding fails.
+
+=head2 encode_json
+
+  my $bytes = encode_json({foo => 'bar'});
+
+Encode Perl value to JSON.
+
+=head2 j
+
+  my $bytes = j([1, 2, 3]);
+  my $bytes = j({foo => 'bar'});
+  my $value = j($bytes);
+
+Encode Perl data structure (which may only be an array reference or hash
+reference) or decode JSON, an C<undef> return value indicates a bare C<null>
+or that decoding failed.
 
 =head1 ATTRIBUTES
 
 L<Mojo::JSON> implements the following attributes.
 
-=head2 C<error>
+=head2 error
 
-    my $error = $json->error;
-    $json     = $json->error('Oops!');
+  my $err = $json->error;
+  $json   = $json->error('Parser error');
+
+Parser error.
 
 =head1 METHODS
 
 L<Mojo::JSON> inherits all methods from L<Mojo::Base> and implements the
 following new ones.
 
-=head2 C<decode>
+=head2 decode
 
-    my $array = $json->decode('[1, 2, 3]');
-    my $hash  = $json->decode('{"foo": "bar"}');
+  my $value = $json->decode($bytes);
 
-=head2 C<encode>
+Decode JSON to Perl value and set L</"error"> if decoding failed.
 
-    my $string = $json->encode({foo => 'bar'});
+=head2 encode
 
-=head2 C<false>
+  my $bytes = $json->encode({foo => 'bar'});
 
-    my $false = Mojo::JSON->false;
-    my $false = $json->false;
+Encode Perl value to JSON.
 
-=head2 C<true>
+=head2 false
 
-    my $true = Mojo::JSON->true;
-    my $true = $json->true;
+  my $false = Mojo::JSON->false;
+  my $false = $json->false;
+
+False value, used because Perl has no native equivalent.
+
+=head2 true
+
+  my $true = Mojo::JSON->true;
+  my $true = $json->true;
+
+True value, used because Perl has no native equivalent.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

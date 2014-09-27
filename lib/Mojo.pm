@@ -1,275 +1,165 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo;
+use Mojo::Base -base;
 
-use strict;
-use warnings;
-
-use base 'Mojo::Base';
-
+# "Professor: These old Doomsday devices are dangerously unstable. I'll rest
+#             easier not knowing where they are."
 use Carp 'croak';
-use Mojo::Client;
-use Mojo::Commands;
 use Mojo::Home;
 use Mojo::Log;
-use Mojo::Transaction::Single;
+use Mojo::Transaction::HTTP;
+use Mojo::UserAgent;
+use Mojo::Util;
+use Scalar::Util 'weaken';
 
-__PACKAGE__->attr(
-    build_tx_cb => sub {
-        sub {
-            my $tx = Mojo::Transaction::Single->new;
-            $tx->res->headers->header('X-Powered-By' => 'Mojo (Perl)');
-            return $tx;
-          }
-    }
-);
-__PACKAGE__->attr(client => sub { Mojo::Client->new });
-__PACKAGE__->attr(home   => sub { Mojo::Home->new });
-__PACKAGE__->attr(log    => sub { Mojo::Log->new });
+has home => sub { Mojo::Home->new };
+has log  => sub { Mojo::Log->new };
+has ua   => sub {
+  my $ua = Mojo::UserAgent->new;
+  weaken $ua->server->app(shift)->{app};
+  return $ua;
+};
 
-# Oh, so they have internet on computers now!
-our $VERSION = '0.999914';
+sub build_tx { Mojo::Transaction::HTTP->new }
 
-sub new {
-    my $self = shift->SUPER::new(@_);
+sub config { Mojo::Util::_stash(config => @_) }
 
-    # Home
-    $self->home->detect(ref $self);
-
-    # Log directory
-    $self->log->path($self->home->rel_file('log/mojo.log'))
-      if -w $self->home->rel_file('log');
-
-    return $self;
-}
-
-# Bart, stop pestering Satan!
 sub handler { croak 'Method "handler" not implemented in subclass' }
 
-# Start command system
-sub start {
-    my $class = shift;
+sub new {
+  my $self = shift->SUPER::new(@_);
 
-    # We can be called on class or instance
-    $class = ref $class || $class;
+  # Check if we have a log directory
+  my $home = $self->home;
+  $home->detect(ref $self) unless @{$home->parts};
+  $self->log->path($home->rel_file('log/mojo.log'))
+    if -w $home->rel_file('log');
 
-    # We are the application
-    $ENV{MOJO_APP} ||= $class;
-
-    # Start!
-    Mojo::Commands->start(@_);
+  return $self;
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
-Mojo - The Web In A Box!
+Mojo - Duct tape for the HTML5 web!
 
 =head1 SYNOPSIS
 
-    use base 'Mojo';
+  package MyApp;
+  use Mojo::Base 'Mojo';
 
-    # All the complexities of CGI, FastCGI and HTTP get reduced to a
-    # single method call!
-    sub handler {
-        my ($self, $tx) = @_;
+  # All the complexities of CGI, PSGI, HTTP and WebSockets get reduced to a
+  # single method call!
+  sub handler {
+    my ($self, $tx) = @_;
 
-        # Request
-        my $method = $tx->req->method;
-        my $path   = $tx->req->url->path;
+    # Request
+    my $method = $tx->req->method;
+    my $path   = $tx->req->url->path;
 
-        # Response
-        $tx->res->headers->content_type('text/plain');
-        $tx->res->body("$method request for $path!");
-    }
+    # Response
+    $tx->res->code(200);
+    $tx->res->headers->content_type('text/plain');
+    $tx->res->body("$method request for $path!");
+
+    # Resume transaction
+    $tx->resume;
+  }
 
 =head1 DESCRIPTION
 
-L<Mojo> provides a minimal interface between web servers and Perl web
-frameworks.
+A flexible runtime environment for Perl real-time web frameworks, with all the
+basic tools and helpers needed to write simple web applications and higher
+level web frameworks, such as L<Mojolicious>.
 
-Also included in the distribution are two MVC web frameworks named
-L<Mojolicious> and L<Mojolicious::Lite>.
-
-Currently there are no requirements besides Perl 5.8.1.
-
-    .------------------------------------------------------------.
-    |                                                            |
-    |   Application  .-------------------------------------------'
-    |                | .-------------------. .-------------------.
-    |                | |    Mojolicious    | | Mojolicious::Lite |
-    '----------------' '-------------------' '-------------------'
-    .------------------------------------------------------------.
-    |                           Mojo                             |
-    '------------------------------------------------------------'
-    .------------------. .------------------. .------------------.
-    |        CGI       | |      FastCGI     | |     HTTP 1.1     |
-    '------------------' '------------------' '------------------'
-
-For user friendly documentation see L<Mojolicious::Book> and
-L<Mojolicious::Lite>.
+See L<Mojolicious::Guides> for more!
 
 =head1 ATTRIBUTES
 
 L<Mojo> implements the following attributes.
 
-=head2 C<build_tx_cb>
+=head2 home
 
-    my $cb = $mojo->build_tx_cb;
-    $mojo  = $mojo->build_tx_cb(sub { ... });
+  my $home = $app->home;
+  $app     = $app->home(Mojo::Home->new);
 
-=head2 C<client>
+The home directory of your application, defaults to a L<Mojo::Home> object
+which stringifies to the actual path.
 
-    my $client = $mojo->client;
-    $mojo      = $mojo->client(Mojo::Client->new);
+  # Generate portable path relative to home directory
+  my $path = $app->home->rel_file('data/important.txt');
 
-=head2 C<home>
+=head2 log
 
-    my $home = $mojo->home;
-    $mojo    = $mojo->home(Mojo::Home->new);
+  my $log = $app->log;
+  $app    = $app->log(Mojo::Log->new);
 
-=head2 C<log>
+The logging layer of your application, defaults to a L<Mojo::Log> object.
 
-    my $log = $mojo->log;
-    $mojo   = $mojo->log(Mojo::Log->new);
+  # Log debug message
+  $app->log->debug('It works!');
+
+=head2 ua
+
+  my $ua = $app->ua;
+  $app   = $app->ua(Mojo::UserAgent->new);
+
+A full featured HTTP user agent for use in your applications, defaults to a
+L<Mojo::UserAgent> object.
+
+  # Perform blocking request
+  say $app->ua->get('example.com')->res->body;
 
 =head1 METHODS
 
 L<Mojo> inherits all methods from L<Mojo::Base> and implements the following
 new ones.
 
-=head2 C<new>
+=head2 build_tx
 
-    my $mojo = Mojo->new;
+  my $tx = $app->build_tx;
 
-=head2 C<handler>
+Transaction builder, defaults to building a L<Mojo::Transaction::HTTP>
+object.
 
-    $tx = $mojo->handler($tx);
+=head2 config
 
-=head2 C<start>
+  my $hash = $app->config;
+  my $foo  = $app->config('foo');
+  $app     = $app->config({foo => 'bar'});
+  $app     = $app->config(foo => 'bar');
 
-    Mojo->start;
-    Mojo->start('daemon');
+Application configuration.
 
-=head1 SUPPORT
+  # Remove value
+  my $foo = delete $app->config->{foo};
 
-=head2 Web
+=head2 handler
 
-    http://mojolicious.org
+  $app->handler(Mojo::Transaction::HTTP->new);
 
-=head2 IRC
+The handler is the main entry point to your application or framework and will
+be called for each new transaction, which will usually be a
+L<Mojo::Transaction::HTTP> or L<Mojo::Transaction::WebSocket> object. Meant to
+be overloaded in a subclass.
 
-    #mojo on irc.perl.org
+  sub handler {
+    my ($self, $tx) = @_;
+    ...
+  }
 
-=head2 Mailing-List
+=head2 new
 
-    http://lists.kraih.com/listinfo/mojo
+  my $app = Mojo->new;
 
-=head1 DEVELOPMENT
-
-=head2 Repository
-
-    http://github.com/kraih/mojo/commits/master
+Construct a new L<Mojo> application. Will automatically detect your home
+directory if necessary and set up logging to C<log/mojo.log> if there's a
+C<log> directory.
 
 =head1 SEE ALSO
 
-L<Mojolicious>
-
-=head1 AUTHOR
-
-Sebastian Riedel, C<sri@cpan.org>.
-
-=head1 CREDITS
-
-In alphabetical order:
-
-Adam Kennedy
-
-Adriano Ferreira
-
-Alexey Likhatskiy
-
-Anatoly Sharifulin
-
-Andre Vieth
-
-Andreas Koenig
-
-Andy Grundman
-
-Aristotle Pagaltzis
-
-Ask Bjoern Hansen
-
-Audrey Tang
-
-Breno G. de Oliveira
-
-Burak Gursoy
-
-Ch Lamprecht
-
-Christian Hansen
-
-David Davis
-
-Gisle Aas
-
-Graham Barr
-
-James Duncan
-
-Jaroslav Muhin
-
-Jesse Vincent
-
-Kazuhiro Shibuya
-
-Kevin Old
-
-Lars Balker Rasmussen
-
-Leon Brocard
-
-Maik Fischer
-
-Marcus Ramberg
-
-Mark Stosberg
-
-Maksym Komar
-
-Pascal Gaudette
-
-Pedro Melo
-
-Pierre-Yves Ritschard
-
-Rafal Pocztarski
-
-Randal Schwartz
-
-Robert Hicks
-
-Shu Cho
-
-Stanis Trendelenburg
-
-Tatsuhiko Miyagawa
-
-Uwe Voelker
-
-Viacheslav Tikhanovskii
-
-Yuki Kimoto
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (C) 2008-2009, Sebastian Riedel.
-
-This program is free software, you can redistribute it and/or modify it under
-the terms of the Artistic License version 2.0.
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

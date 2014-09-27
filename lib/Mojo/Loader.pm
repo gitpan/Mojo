@@ -1,137 +1,83 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::Loader;
+use Mojo::Base -base;
 
-use strict;
-use warnings;
-
-use base 'Mojo::Base';
-
-use Carp 'carp';
-use File::Basename;
-use File::Spec;
-use Mojo::Command;
+use File::Basename 'fileparse';
+use File::Spec::Functions qw(catdir catfile splitdir);
 use Mojo::Exception;
+use Mojo::Util qw(b64_decode class_to_path);
 
-use constant DEBUG => $ENV{MOJO_LOADER_DEBUG} || 0;
+my (%BIN, %CACHE);
 
-my $STATS = {};
+sub data { $_[1] ? $_[2] ? _all($_[1])->{$_[2]} : _all($_[1]) : undef }
 
-BEGIN {
+sub is_binary { keys %{_all($_[1])} ? !!$BIN{$_[1]}{$_[2]} : undef }
 
-    # Debugger sub tracking
-    $^P |= 0x10;
-
-    # Bug in pre-5.8.7 perl
-    # http://rt.perl.org/rt3/Ticket/Display.html?id=35059
-    eval 'sub DB::sub' if $] < 5.008007;
-}
-
-# Homer no function beer well without.
 sub load {
-    my ($self, $module) = @_;
+  my ($self, $module) = @_;
 
-    # Shortcut
-    return 1 unless $module;
+  # Check module name
+  return 1 if !$module || $module !~ /^\w(?:[\w:']*\w)?$/;
 
-    # Already loaded?
-    return if $module->can('isa');
+  # Load
+  return undef if $module->can('new') || eval "require $module; 1";
 
-    # Try
-    eval "require $module";
+  # Exists
+  return 1 if $@ =~ /^Can't locate \Q@{[class_to_path $module]}\E in \@INC/;
 
-    # Catch
-    if ($@) {
-
-        # Exists?
-        my $path = Mojo::Command->class_to_path($module);
-        return 1 if $@ =~ /^Can't locate $path in \@INC/;
-
-        # Real error
-        return Mojo::Exception->new($@);
-    }
-
-    return;
-}
-
-sub reload {
-    while (my ($key, $file) = each %INC) {
-
-        # Modified time
-        next unless $file;
-        my $mtime = (stat $file)[9];
-
-        # Startup time as default
-        $STATS->{$file} = $^T unless defined $STATS->{$file};
-
-        # Modified?
-        if ($mtime > $STATS->{$file}) {
-
-            # Debug
-            warn "\n$key -> $file modified, reloading!\n" if DEBUG;
-
-            # Unload
-            delete $INC{$key};
-            my @subs = grep { index($DB::sub{$_}, "$file:") == 0 }
-              keys %DB::sub;
-            for my $sub (@subs) {
-                eval { undef &$sub };
-                carp "Can't unload sub '$sub' in '$file': $@" if $@;
-                delete $DB::sub{$sub};
-            }
-
-            # Try
-            eval { require $key };
-
-            # Catch
-            return Mojo::Exception->new($@) if $@;
-
-            $STATS->{$file} = $mtime;
-        }
-    }
-
-    return;
+  # Real error
+  return Mojo::Exception->new($@);
 }
 
 sub search {
-    my ($self, $namespace) = @_;
+  my ($self, $ns) = @_;
 
-    # Directories
-    my @directories = exists $INC{'blib.pm'} ? grep {/blib/} @INC : @INC;
+  my %modules;
+  for my $directory (@INC) {
+    next unless -d (my $path = catdir $directory, split(/::|'/, $ns));
 
-    # Scan
-    my $modules = [];
-    my %found;
-    foreach my $directory (@directories) {
-        my $path = File::Spec->catdir($directory, (split /::/, $namespace));
-        next unless (-e $path && -d $path);
-
-        # Get files
-        opendir(my $dir, $path);
-        my @files = grep /\.pm$/, readdir($dir);
-        closedir($dir);
-
-        # Check files
-        for my $file (@files) {
-            my $full =
-              File::Spec->catfile(File::Spec->splitdir($path), $file);
-
-            # Directory
-            next if -d $full;
-
-            # Found
-            my $name = File::Basename::fileparse($file, qr/\.pm/);
-            my $class = "$namespace\::$name";
-            push @$modules, $class unless $found{$class};
-            $found{$class} ||= 1;
-        }
+    # List "*.pm" files in directory
+    opendir(my $dir, $path);
+    for my $file (grep /\.pm$/, readdir $dir) {
+      next if -d catfile splitdir($path), $file;
+      $modules{"${ns}::" . fileparse $file, qr/\.pm/}++;
     }
+  }
 
-    return $modules;
+  return [keys %modules];
+}
+
+sub _all {
+  my $class = shift;
+
+  return $CACHE{$class} if $CACHE{$class};
+  my $handle = do { no strict 'refs'; \*{"${class}::DATA"} };
+  return {} unless fileno $handle;
+  seek $handle, 0, 0;
+  my $data = join '', <$handle>;
+
+  # Ignore everything before __DATA__ (some versions seek to start of file)
+  $data =~ s/^.*\n__DATA__\r?\n/\n/s;
+
+  # Ignore everything after __END__
+  $data =~ s/\n__END__\r?\n.*$/\n/s;
+
+  # Split files
+  (undef, my @files) = split /^@@\s*(.+?)\s*\r?\n/m, $data;
+
+  # Find data
+  my $all = $CACHE{$class} = {};
+  while (@files) {
+    my ($name, $data) = splice @files, 0, 2;
+    $all->{$name} = $name =~ s/\s*\(\s*base64\s*\)$//
+      && ++$BIN{$class}{$name} ? b64_decode($data) : $data;
+  }
+
+  return $all;
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
@@ -139,14 +85,19 @@ Mojo::Loader - Loader
 
 =head1 SYNOPSIS
 
-    use Mojo::Loader;
+  use Mojo::Loader;
 
-    my $loader = Mojo::Loader->new;
-    my $modules = $loader->search('Some::Namespace');
-    $loader->load($modules->[0]);
+  # Find modules in a namespace
+  my $loader = Mojo::Loader->new;
+  for my $module (@{$loader->search('Some::Namespace')}) {
 
-    # Reload
-    Mojo::Loader->reload;
+    # Load them safely
+    my $e = $loader->load($module);
+    warn qq{Loading "$module" failed: $e} and next if ref $e;
+
+    # And extract files from the DATA section
+    say $loader->data($module, 'some_file.txt');
+  }
 
 =head1 DESCRIPTION
 
@@ -157,21 +108,41 @@ L<Mojo::Loader> is a class loader and plugin framework.
 L<Mojo::Loader> inherits all methods from L<Mojo::Base> and implements the
 following new ones.
 
-=head2 C<new>
+=head2 data
 
-    my $loader = Mojo::Loader->new;
-    my $loader = Mojo::Loader->new('MyApp::Namespace');
+  my $all   = $loader->data('Foo::Bar');
+  my $index = $loader->data('Foo::Bar', 'index.html');
 
-=head2 C<load>
+Extract embedded file from the C<DATA> section of a class, all files will be
+cached once they have been accessed for the first time.
 
-    my $e = $loader->load('Foo::Bar');
+  say for keys %{$loader->data('Foo::Bar')};
 
-=head2 C<reload>
+=head2 is_binary
 
-    my $e = Mojo::Loader->reload;
+  my $bool = $loader->is_binary('Foo::Bar', 'test.png');
 
-=head2 C<search>
+Check if embedded file from the C<DATA> section of a class was Base64 encoded.
 
-    my $modules = $loader->search('MyApp::Namespace');
+=head2 load
+
+  my $e = $loader->load('Foo::Bar');
+
+Load a class and catch exceptions. Note that classes are checked for a C<new>
+method to see if they are already loaded.
+
+  if (my $e = $loader->load('Foo::Bar')) {
+    die ref $e ? "Exception: $e" : 'Not found!';
+  }
+
+=head2 search
+
+  my $modules = $loader->search('MyApp::Namespace');
+
+Search for modules in a namespace non-recursively.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

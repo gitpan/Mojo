@@ -1,13 +1,8 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package MojoliciousTest::Foo::Bar;
+use Mojolicious::Controller -base;
 
-use strict;
-use warnings;
-
-use base 'Mojolicious::Controller';
-
-# Poor Bender. Without his brain he's become all quiet and helpful.
 sub index {1}
+
+sub test { shift->stash(msg => 'works') }
 
 1;

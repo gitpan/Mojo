@@ -1,95 +1,50 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::Cookie::Request;
+use Mojo::Base 'Mojo::Cookie';
 
-use strict;
-use warnings;
+use Mojo::Util qw(quote split_header);
 
-use base 'Mojo::Cookie';
-
-use Mojo::ByteStream 'b';
-
-# Lisa, would you like a donut?
-# No thanks. Do you have any fruit?
-# This has purple in it. Purple is a fruit.
 sub parse {
-    my ($self, $string) = @_;
+  my ($self, $str) = @_;
 
-    my @cookies;
-    my $version = 1;
+  my @cookies;
+  my @pairs = map {@$_} @{split_header($str // '')};
+  while (@pairs) {
+    my ($name, $value) = (shift @pairs, shift @pairs);
+    next if $name =~ /^\$/;
+    push @cookies, $self->new(name => $name, value => $value // '');
+  }
 
-    for my $knot ($self->_tokenize($string)) {
-        for my $token (@{$knot}) {
-
-            my ($name, $value) = @{$token};
-
-            # Value might be quoted
-            $value = b($value)->unquote if $value;
-
-            # Path
-            if ($name =~ /^\$Path$/i) { $cookies[-1]->path($value) }
-
-            # Version
-            elsif ($name =~ /^\$Version$/i) { $version = $value }
-
-            # Name and value
-            else {
-                push @cookies, Mojo::Cookie::Request->new;
-                $cookies[-1]->name($name);
-                $cookies[-1]->value(b($value)->unquote);
-                $cookies[-1]->version($version);
-            }
-        }
-    }
-
-    return \@cookies;
-}
-
-sub prefix {
-    my $self = shift;
-    my $version = $self->version || 1;
-    return "\$Version=$version";
+  return \@cookies;
 }
 
 sub to_string {
-    my $self = shift;
-
-    # Shortcut
-    return '' unless $self->name;
-
-    my $cookie = $self->name . '=' . $self->value;
-    if (my $path = $self->path) { $cookie .= "; \$Path=$path" }
-
-    return $cookie;
-}
-
-sub to_string_with_prefix {
-    my $self   = shift;
-    my $prefix = $self->prefix;
-    my $cookie = $self->to_string;
-    return "$prefix; $cookie";
+  my $self = shift;
+  return '' unless length(my $name = $self->name // '');
+  my $value = $self->value // '';
+  return join '=', $name, $value =~ /[,;" ]/ ? quote($value) : $value;
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
-Mojo::Cookie::Request - Request Cookies
+Mojo::Cookie::Request - HTTP request cookie
 
 =head1 SYNOPSIS
 
-    use Mojo::Cookie::Request;
+  use Mojo::Cookie::Request;
 
-    my $cookie = Mojo::Cookie::Request->new;
-    $cookie->name('foo');
-    $cookie->value('bar');
-
-    print "$cookie";
+  my $cookie = Mojo::Cookie::Request->new;
+  $cookie->name('foo');
+  $cookie->value('bar');
+  say "$cookie";
 
 =head1 DESCRIPTION
 
-L<Mojo::Cookie::Request> is a generic container for HTTP request cookies.
+L<Mojo::Cookie::Request> is a container for HTTP request cookies based on
+L<RFC 6265|http://tools.ietf.org/html/rfc6265>.
 
 =head1 ATTRIBUTES
 
@@ -100,20 +55,20 @@ L<Mojo::Cookie::Request> inherits all attributes from L<Mojo::Cookie>.
 L<Mojo::Cookie::Request> inherits all methods from L<Mojo::Cookie> and
 implements the following new ones.
 
-=head2 C<parse>
+=head2 parse
 
-    my @cookies = $cookie->parse('$Version=1; f=b; $Path=/');
+  my $cookies = Mojo::Cookie::Request->parse('f=b; g=a');
 
-=head2 C<prefix>
+Parse cookies.
 
-    my $prefix = $cookie->prefix;
+=head2 to_string
 
-=head2 C<to_string>
+  my $str = $cookie->to_string;
 
-    my $string = $cookie->to_string;
+Render cookie.
 
-=head2 C<to_string_with_prefix>
+=head1 SEE ALSO
 
-    my $string = $cookie->to_string_with_prefix;
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

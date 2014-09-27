@@ -1,144 +1,166 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::Content::Single;
+use Mojo::Base 'Mojo::Content';
 
-use strict;
-use warnings;
-
-use base 'Mojo::Content';
-use bytes;
-
-use Mojo::Asset::File;
 use Mojo::Asset::Memory;
 use Mojo::Content::MultiPart;
 
-use constant MAX_MEMORY_SIZE => $ENV{MOJO_MAX_MEMORY_SIZE} || 10240;
+has asset => sub { Mojo::Asset::Memory->new(auto_upgrade => 1) };
+has auto_upgrade => 1;
 
-__PACKAGE__->attr(asset => sub { Mojo::Asset::Memory->new });
+sub body_contains { shift->asset->contains(shift) >= 0 }
 
-sub body_contains {
-    my ($self, $chunk) = @_;
-
-    # Found
-    return 1 if $self->asset->contains($chunk) >= 0;
-
-    # Not found
-    return 0;
+sub body_size {
+  my $self = shift;
+  return ($self->headers->content_length || 0) if $self->{dynamic};
+  return $self->asset->size;
 }
 
-sub body_size { shift->asset->size }
+sub clone {
+  my $self = shift;
+  return undef unless my $clone = $self->SUPER::clone();
+  return $clone->asset($self->asset);
+}
 
 sub get_body_chunk {
-    my ($self, $offset) = @_;
+  my ($self, $offset) = @_;
+  return $self->generate_body_chunk($offset) if $self->{dynamic};
+  return $self->asset->get_chunk($offset);
+}
 
-    # Progress
-    $self->progress_cb->($self, 'body', $offset) if $self->progress_cb;
-
-    # Body generator
-    return $self->generate_body_chunk($offset) if $self->body_cb;
-
-    # Normal content
-    return $self->asset->get_chunk($offset);
+sub new {
+  my $self = shift->SUPER::new(@_);
+  $self->{read}
+    = $self->on(read => sub { $_[0]->asset($_[0]->asset->add_chunk($_[1])) });
+  return $self;
 }
 
 sub parse {
-    my $self = shift;
+  my $self = shift;
 
-    # Parse headers and filter body
-    $self->SUPER::parse(@_);
+  # Parse headers
+  $self->_parse_until_body(@_);
 
-    # Still parsing headers or using a custom body parser
-    return $self if $self->is_state('headers') || $self->body_cb;
+  # Parse body
+  return $self->SUPER::parse
+    unless $self->auto_upgrade && defined $self->boundary;
 
-    # Make sure we don't waste memory
-    if ($self->asset->isa('Mojo::Asset::Memory')) {
-        $self->asset(Mojo::Asset::File->new)
-          if !$self->headers->content_length
-              || $self->headers->content_length > MAX_MEMORY_SIZE;
-    }
-
-    # Content needs to be upgraded to multipart
-    if ($self->is_multipart) {
-
-        # Shortcut
-        return $self if $self->isa('Mojo::Content::MultiPart');
-
-        # Need to upgrade
-        return Mojo::Content::MultiPart->new($self)->parse;
-    }
-
-    # Chunked body or relaxed content
-    if ($self->is_chunked || $self->relaxed) {
-        $self->asset->add_chunk($self->buffer->empty);
-    }
-
-    # Normal body
-    else {
-
-        # Slurp
-        my $length = $self->headers->content_length || 0;
-        my $need = $length - $self->asset->size;
-        $self->asset->add_chunk($self->buffer->remove($need)) if $need > 0;
-
-        # Done
-        $self->done if $length <= $self->raw_body_size;
-    }
-
-    # With leftovers, maybe pipelined
-    if ($self->is_done) {
-        $self->state('done_with_leftovers') if $self->has_leftovers;
-    }
-
-    return $self;
+  # Content needs to be upgraded to multipart
+  $self->unsubscribe(read => $self->{read});
+  my $multi = Mojo::Content::MultiPart->new(%$self);
+  $self->emit(upgrade => $multi);
+  return $multi->parse;
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
-Mojo::Content::Single - HTTP Content
+Mojo::Content::Single - HTTP content
 
 =head1 SYNOPSIS
 
-    use Mojo::Content::Single;
+  use Mojo::Content::Single;
 
-    my $content = Mojo::Content::Single->new;
-    $content->parse("Content-Length: 12\r\n\r\nHello World!");
+  my $single = Mojo::Content::Single->new;
+  $single->parse("Content-Length: 12\x0d\x0a\x0d\x0aHello World!");
+  say $single->headers->content_length;
 
 =head1 DESCRIPTION
 
-L<Mojo::Content::Single> is a container for HTTP content.
+L<Mojo::Content::Single> is a container for HTTP content based on
+L<RFC 7230|http://tools.ietf.org/html/rfc7230> and
+L<RFC 7231|http://tools.ietf.org/html/rfc7231>.
+
+=head1 EVENTS
+
+L<Mojo::Content::Single> inherits all events from L<Mojo::Content> and can
+emit the following new ones.
+
+=head2 upgrade
+
+  $single->on(upgrade => sub {
+    my ($single, $multi) = @_;
+    ...
+  });
+
+Emitted when content gets upgraded to a L<Mojo::Content::MultiPart> object.
+
+  $single->on(upgrade => sub {
+    my ($single, $multi) = @_;
+    return unless $multi->headers->content_type =~ /multipart\/([^;]+)/i;
+    say "Multipart: $1";
+  });
 
 =head1 ATTRIBUTES
 
 L<Mojo::Content::Single> inherits all attributes from L<Mojo::Content> and
 implements the following new ones.
 
-=head2 C<asset>
+=head2 asset
 
-    my $asset = $content->asset;
-    $content  = $content->asset(Mojo::Asset::Memory->new);
+  my $asset = $single->asset;
+  $single   = $single->asset(Mojo::Asset::Memory->new);
+
+The actual content, defaults to a L<Mojo::Asset::Memory> object with
+C<auto_upgrade> enabled.
+
+=head2 auto_upgrade
+
+  my $bool = $single->auto_upgrade;
+  $single  = $single->auto_upgrade($bool);
+
+Try to detect multipart content and automatically upgrade to a
+L<Mojo::Content::MultiPart> object, defaults to a true value.
 
 =head1 METHODS
 
 L<Mojo::Content::Single> inherits all methods from L<Mojo::Content> and
 implements the following new ones.
 
-=head2 C<body_contains>
+=head2 body_contains
 
-    my $found = $content->body_contains;
+  my $bool = $single->body_contains('1234567');
 
-=head2 C<body_size>
+Check if content contains a specific string.
 
-    my $size = $content->body_size;
+=head2 body_size
 
-=head2 C<get_body_chunk>
+  my $size = $single->body_size;
 
-    my $chunk = $content->get_body_chunk(0);
+Content size in bytes.
 
-=head2 C<parse>
+=head2 clone
 
-    $content = $content->parse("Content-Length: 12\r\n\r\nHello World!");
+  my $clone = $single->clone;
+
+Clone content if possible, otherwise return C<undef>.
+
+=head2 get_body_chunk
+
+  my $bytes = $single->get_body_chunk(0);
+
+Get a chunk of content starting from a specific position.
+
+=head2 new
+
+  my $single = Mojo::Content::Single->new;
+
+Construct a new L<Mojo::Content::Single> object and subscribe to L</"read">
+event with default content parser.
+
+=head2 parse
+
+  $single = $single->parse("Content-Length: 12\x0d\x0a\x0d\x0aHello World!");
+  my $multi
+    = $single->parse("Content-Type: multipart/form-data\x0d\x0a\x0d\x0a");
+
+Parse content chunk and upgrade to L<Mojo::Content::MultiPart> object if
+necessary.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

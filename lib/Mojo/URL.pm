@@ -1,230 +1,190 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::URL;
+use Mojo::Base -base;
+use overload bool => sub {1}, '""' => sub { shift->to_string }, fallback => 1;
 
-use strict;
-use warnings;
-
-use base 'Mojo::Base';
-use overload '""' => sub { shift->to_string }, fallback => 1;
-
-use Mojo::ByteStream 'b';
 use Mojo::Parameters;
 use Mojo::Path;
+use Mojo::Util qw(punycode_decode punycode_encode url_escape url_unescape);
 
-__PACKAGE__->attr([qw/fragment host port scheme userinfo/]);
-__PACKAGE__->attr(base => sub { Mojo::URL->new });
-
-# RFC 3986
-our $UNRESERVED = 'A-Za-z0-9\-\.\_\~';
-our $SUBDELIM   = '!\$\&\'\(\)\*\+\,\;\=';
-our $PCHAR      = "$UNRESERVED$SUBDELIM\%\:\@";
-
-# The specs for this are blurry, it's mostly a colelction of w3c suggestions
-our $PARAM = "$UNRESERVED\!\$\'\(\)\*\,\:\@\/\?";
-
-sub new {
-    my $self = shift->SUPER::new();
-    $self->parse(@_);
-    return $self;
-}
+has base => sub { Mojo::URL->new };
+has [qw(fragment host port scheme userinfo)];
 
 sub authority {
-    my ($self, $authority) = @_;
+  my $self = shift;
 
-    # Set
-    if (defined $authority) {
-        my $userinfo = '';
-        my $host     = $authority;
+  # New authority
+  if (@_) {
+    return $self unless defined(my $authority = shift);
 
-        # Userinfo
-        if ($authority =~ /^([^\@]*)\@(.*)$/) {
-            $userinfo = $1;
-            $host     = $2;
-        }
+    # Userinfo
+    $authority =~ s/^([^\@]+)\@// and $self->userinfo(url_unescape $1);
 
-        # Port
-        my $port = undef;
-        if ($host =~ /^([^\:]*)\:(.*)$/) {
-            $host = $1;
-            $port = $2;
-        }
+    # Port
+    $authority =~ s/:(\d+)$// and $self->port($1);
 
-        $self->userinfo(
-            $userinfo ? b($userinfo)->url_unescape->to_string : undef);
-        $self->host($host ? b($host)->url_unescape->to_string : undef);
-        $self->port($port);
+    # Host
+    my $host = url_unescape $authority;
+    return $host =~ /[^\x00-\x7f]/ ? $self->ihost($host) : $self->host($host);
+  }
 
-        return $self;
-    }
+  # Build authority
+  return undef unless defined(my $authority = $self->host_port);
+  return $authority unless my $info = $self->userinfo;
+  return url_escape($info, '^A-Za-z0-9\-._~!$&\'()*+,;=:') . '@' . $authority;
+}
 
-    # *( unreserved / pct-encoded / sub-delims )
-    my $host = b($self->host)->url_escape("$UNRESERVED$SUBDELIM");
-    my $port = $self->port;
-
-    # *( unreserved / pct-encoded / sub-delims / ":" )
-    my $userinfo = b($self->userinfo)->url_escape("$UNRESERVED$SUBDELIM\:");
-
-    # Format
-    $authority .= "$userinfo\@" if $userinfo;
-    $authority .= lc($host || '');
-    $authority .= ":$port" if $port;
-
-    return $authority;
+sub host_port {
+  my $self = shift;
+  return undef unless defined(my $host = $self->ihost);
+  return $host unless my $port = $self->port;
+  return "$host:$port";
 }
 
 sub clone {
-    my $self = shift;
-
-    # Clone
-    my $clone = Mojo::URL->new;
-    $clone->scheme($self->scheme);
-    $clone->authority($self->authority);
-    $clone->path($self->path->clone);
-    $clone->query($self->query->clone);
-    $clone->fragment($self->fragment);
-
-    # Base
-    $clone->base($self->base->clone) if $self->{base};
-
-    return $clone;
+  my $self  = shift;
+  my $clone = $self->new;
+  @$clone{keys %$self} = values %$self;
+  $clone->{$_} && ($clone->{$_} = $clone->{$_}->clone) for qw(base path query);
+  return $clone;
 }
 
-sub is_abs {
-    my $self = shift;
-    return 1 if $self->scheme && $self->authority;
-    return;
+sub ihost {
+  my $self = shift;
+
+  # Decode
+  return $self->host(join '.',
+    map { /^xn--(.+)$/ ? punycode_decode($_) : $_ } split /\./, shift)
+    if @_;
+
+  # Check if host needs to be encoded
+  return undef unless defined(my $host = $self->host);
+  return lc $host unless $host =~ /[^\x00-\x7f]/;
+
+  # Encode
+  return lc join '.',
+    map { /[^\x00-\x7f]/ ? ('xn--' . punycode_encode $_) : $_ } split /\./,
+    $host;
 }
+
+sub is_abs { !!shift->scheme }
+
+sub new { @_ > 1 ? shift->SUPER::new->parse(@_) : shift->SUPER::new }
 
 sub parse {
-    my ($self, $url) = @_;
+  my ($self, $url) = @_;
 
-    # Shortcut
-    return $self unless $url;
-
-    # Official regex
-    my ($scheme, $authority, $path, $query, $fragment) = $url
-      =~ m|(?:([^:/?#]+):)?(?://([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?|;
-
-    $self->scheme($scheme);
-    $self->authority($authority);
-    $self->path->parse($path);
-    $self->query->parse($query);
-    $self->fragment($fragment);
-
-    return $self;
+  # Official regex from RFC 3986
+  $url =~ m!^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?!;
+  return $self->scheme($2)->authority($4)->path($5)->query($7)->fragment($9);
 }
 
 sub path {
-    my ($self, $path) = @_;
+  my $self = shift;
 
-    # Set
-    if ($path) {
-        $self->{path} = ref $path ? $path : Mojo::Path->new($path);
-        return $self;
-    }
+  # Old path
+  $self->{path} ||= Mojo::Path->new;
+  return $self->{path} unless @_;
 
-    # Get
-    $self->{path} ||= Mojo::Path->new;
-    return $self->{path};
+  # New path
+  my $path = shift;
+  $self->{path} = ref $path ? $path : $self->{path}->merge($path);
+
+  return $self;
 }
 
+sub path_query {
+  my $self  = shift;
+  my $query = $self->query->to_string;
+  return $self->path->to_string . (length $query ? "?$query" : '');
+}
+
+sub protocol { lc(shift->scheme // '') }
+
 sub query {
-    my $self = shift;
+  my $self = shift;
 
-    # Set
-    if (@_) {
-        $self->{query} =
-          @_ > 1 ? Mojo::Parameters->new(ref $_[0] ? @{$_[0]} : @_) : $_[0];
-        return $self;
+  # Old parameters
+  my $q = $self->{query} ||= Mojo::Parameters->new;
+  return $q unless @_;
+
+  # Replace with list
+  if (@_ > 1) { $q->params([])->parse(@_) }
+
+  # Merge with array
+  elsif (ref $_[0] eq 'ARRAY') {
+    while (my $name = shift @{$_[0]}) {
+      my $value = shift @{$_[0]};
+      defined $value ? $q->param($name => $value) : $q->remove($name);
     }
+  }
 
-    # Get
-    $self->{query} ||= Mojo::Parameters->new;
-    return $self->{query};
+  # Append hash
+  elsif (ref $_[0] eq 'HASH') { $q->append(%{$_[0]}) }
+
+  # Replace with string
+  else { $q->parse($_[0]) }
+
+  return $self;
 }
 
 sub to_abs {
-    my $self = shift;
-    my $base = shift || $self->base->clone;
+  my $self = shift;
 
-    my $abs = $self->clone;
+  my $abs = $self->clone;
+  return $abs if $abs->is_abs;
 
-    # Add scheme and authority
-    $abs->scheme($base->scheme);
-    $abs->authority($base->authority);
+  # Scheme
+  my $base = shift || $abs->base;
+  $abs->base($base)->scheme($base->scheme);
 
-    $abs->base($base->clone);
-    my $path = $base->path->clone;
+  # Authority
+  return $abs if $abs->authority;
+  $abs->authority($base->authority);
 
-    # Characters after the right-most '/' need to go
-    pop @{$path->parts} unless $path->trailing_slash;
+  # Absolute path
+  my $path = $abs->path;
+  return $abs if $path->leading_slash;
 
-    $path->append($_) for @{$abs->path->parts};
-    $path->leading_slash(1);
-    $path->trailing_slash($abs->path->trailing_slash);
-    $abs->path($path);
+  # Inherit path
+  my $base_path = $base->path;
+  if (!@{$path->parts}) {
+    $path
+      = $abs->path($base_path->clone)->path->trailing_slash(0)->canonicalize;
 
-    return $abs;
+    # Query
+    return $abs if length $abs->query->to_string;
+    $abs->query($base->query->clone);
+  }
+
+  # Merge paths
+  else { $abs->path($base_path->clone->merge($path)->canonicalize) }
+
+  return $abs;
 }
 
-sub to_rel {
-    my $self = shift;
-    my $base = shift || $self->base->clone;
-
-    my $rel = $self->clone;
-
-    # Different locations
-    return $rel
-      unless lc $base->scheme eq lc $rel->scheme
-          && $base->authority eq $rel->authority;
-
-    # Remove scheme and authority
-    $rel->scheme('');
-    $rel->authority('');
-
-    $rel->base($base->clone);
-    my $splice = @{$base->path->parts};
-
-    # Characters after the right-most '/' need to go
-    $splice -= 1 unless $base->path->trailing_slash;
-
-    my $path = $rel->path->clone;
-    splice @{$path->parts}, 0, $splice if $splice;
-
-    $rel->path($path);
-    $rel->path->leading_slash(0) if $splice;
-
-    return $rel;
-}
-
-# Dad, what's a Muppet?
-# Well, it's not quite a mop, not quite a puppet, but man... *laughs*
-# So, to answer you question, I don't know.
 sub to_string {
-    my $self = shift;
+  my $self = shift;
 
-    my $scheme    = $self->scheme;
-    my $authority = $self->authority;
-    my $path      = $self->path;
-    my $query     = $self->query;
+  # Scheme
+  my $url = '';
+  if (my $proto = $self->protocol) { $url .= "$proto:" }
 
-    # *( pchar / "/" / "?" )
-    my $fragment = b($self->fragment)->url_escape("$PCHAR\/\?");
+  # Authority
+  my $authority = $self->authority;
+  $url .= "//$authority" if defined $authority;
 
-    # Format
-    my $url = '';
+  # Path and query
+  my $path = $self->path_query;
+  $url .= !$authority || $path eq '' || $path =~ m!^[/?]! ? $path : "/$path";
 
-    $url .= lc "$scheme://" if $scheme && $authority;
-    $url .= "$authority$path";
-    $url .= "?$query" if @{$query->params};
-    $url .= "#$fragment" if $fragment->size;
-
-    return $url;
+  # Fragment
+  return $url unless defined(my $fragment = $self->fragment);
+  return $url . '#' . url_escape $fragment, '^A-Za-z0-9\-._~!$&\'()*+,;=%:@/?';
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
@@ -232,121 +192,255 @@ Mojo::URL - Uniform Resource Locator
 
 =head1 SYNOPSIS
 
-    use Mojo::URL;
+  use Mojo::URL;
 
-    # Parse
-    my $url = Mojo::URL->new(
-        'http://sri:foobar@kraih.com:3000/foo/bar?foo=bar#23'
-    );
-    print $url->scheme;
-    print $url->userinfo;
-    print $url->host;
-    print $url->port;
-    print $url->path;
-    print $url->query;
-    print $url->fragment;
+  # Parse
+  my $url
+    = Mojo::URL->new('http://sri:foobar@example.com:3000/foo/bar?foo=bar#23');
+  say $url->scheme;
+  say $url->userinfo;
+  say $url->host;
+  say $url->port;
+  say $url->path;
+  say $url->query;
+  say $url->fragment;
 
-    # Build
-    my $url = Mojo::URL->new;
-    $url->scheme('http');
-    $url->userinfo('sri:foobar');
-    $url->host('kraih.com');
-    $url->port(3000);
-    $url->path->parts(qw/foo bar/);
-    $url->query->params(foo => 'bar');
-    $url->fragment(23);
-    print "$url";
+  # Build
+  my $url = Mojo::URL->new;
+  $url->scheme('http');
+  $url->userinfo('sri:foobar');
+  $url->host('example.com');
+  $url->port(3000);
+  $url->path('/foo/bar');
+  $url->query->param(foo => 'bar');
+  $url->fragment(23);
+  say "$url";
 
 =head1 DESCRIPTION
 
-L<Mojo::URL> implements a subset of RFC 3986 for Uniform Resource Locators.
+L<Mojo::URL> implements a subset of
+L<RFC 3986|http://tools.ietf.org/html/rfc3986> and
+L<RFC 3987|http://tools.ietf.org/html/rfc3987> for Uniform Resource Locators
+with support for IDNA and IRIs.
 
 =head1 ATTRIBUTES
 
 L<Mojo::URL> implements the following attributes.
 
-=head2 C<authority>
+=head2 base
 
-    my $authority = $url->autority;
-    $url          = $url->authority('root:pass%3Bw0rd@localhost:8080');
+  my $base = $url->base;
+  $url     = $url->base(Mojo::URL->new);
 
-=head2 C<base>
+Base of this URL, defaults to a L<Mojo::URL> object.
 
-    my $base = $url->base;
-    $url     = $url->base(Mojo::URL->new);
+=head2 fragment
 
-=head2 C<fragment>
+  my $fragment = $url->fragment;
+  $url         = $url->fragment('foo');
 
-    my $fragment = $url->fragment;
-    $url         = $url->fragment('foo');
+Fragment part of this URL.
 
-=head2 C<host>
+=head2 host
 
-    my $host = $url->host;
-    $url     = $url->host('127.0.0.1');
+  my $host = $url->host;
+  $url     = $url->host('127.0.0.1');
 
-=head2 C<port>
+Host part of this URL.
 
-    my $port = $url->port;
-    $url     = $url->port(8080);
+=head2 port
 
-=head2 C<scheme>
+  my $port = $url->port;
+  $url     = $url->port(8080);
 
-    my $scheme = $url->scheme;
-    $url       = $url->scheme('http');
+Port part of this URL.
 
-=head2 C<userinfo>
+=head2 scheme
 
-    my $userinfo = $url->userinfo;
-    $url         = $url->userinfo('root:pass%3Bw0rd');
+  my $scheme = $url->scheme;
+  $url       = $url->scheme('http');
+
+Scheme part of this URL.
+
+=head2 userinfo
+
+  my $info = $url->userinfo;
+  $url     = $url->userinfo('root:pass%3Bw0rd');
+
+Userinfo part of this URL.
 
 =head1 METHODS
 
 L<Mojo::URL> inherits all methods from L<Mojo::Base> and implements the
 following new ones.
 
-=head2 C<new>
+=head2 authority
 
-    my $url = Mojo::URL->new;
-    my $url = Mojo::URL->new('http://127.0.0.1:3000/foo?f=b&baz=2#foo');
+  my $authority = $url->authority;
+  $url          = $url->authority('root:pass%3Bw0rd@localhost:8080');
 
-=head2 C<clone>
+Authority part of this URL.
 
-    my $url2 = $url->clone;
+=head2 clone
 
-=head2 C<is_abs>
+  my $url2 = $url->clone;
 
-    my $is_abs = $url->is_abs;
+Clone this URL.
 
-=head2 C<parse>
+=head2 host_port
 
-    $url = $url->parse('http://127.0.0.1:3000/foo/bar?fo=o&baz=23#foo');
+  my $host_port = $url->host_port;
 
-=head2 C<path>
+Normalized version of L</"host"> and L</"port">.
 
-    my $path = $url->path;
-    $url     = $url->path('/foo/bar');
-    $url     = $url->path(Mojo::Path->new);
+  # "xn--n3h.net:8080"
+  Mojo::URL->new('http://☃.net:8080/test')->host_port;
 
-=head2 C<query>
+=head2 ihost
 
-    my $query = $url->query;
-    $url      = $url->query(name => 'value');
-    $url      = $url->query([name => 'value']);
-    $url      = $url->query(Mojo::Parameters->new);
+  my $ihost = $url->ihost;
+  $url      = $url->ihost('xn--bcher-kva.ch');
 
-=head2 C<to_abs>
+Host part of this URL in punycode format.
 
-    my $abs = $url->to_abs;
-    my $abs = $url->to_abs(Mojo::URL->new('http://kraih.com/foo'));
+  # "xn--n3h.net"
+  Mojo::URL->new('http://☃.net')->ihost;
 
-=head2 C<to_rel>
+=head2 is_abs
 
-    my $rel = $url->to_rel;
-    my $rel = $url->to_rel(Mojo::URL->new('http://kraih.com/foo'));
+  my $bool = $url->is_abs;
 
-=head2 C<to_string>
+Check if URL is absolute.
 
-    my $string = $url->to_string;
+=head2 new
+
+  my $url = Mojo::URL->new;
+  my $url = Mojo::URL->new('http://127.0.0.1:3000/foo?f=b&baz=2#foo');
+
+Construct a new L<Mojo::URL> object and L</"parse"> URL if necessary.
+
+=head2 parse
+
+  $url = $url->parse('http://127.0.0.1:3000/foo/bar?fo=o&baz=23#foo');
+
+Parse relative or absolute URL.
+
+  # "/test/123"
+  $url->parse('/test/123?foo=bar')->path;
+
+  # "example.com"
+  $url->parse('http://example.com/test/123?foo=bar')->host;
+
+  # "sri@example.com"
+  $url->parse('mailto:sri@example.com')->path;
+
+=head2 path
+
+  my $path = $url->path;
+  $url     = $url->path('/foo/bar');
+  $url     = $url->path('foo/bar');
+  $url     = $url->path(Mojo::Path->new);
+
+Path part of this URL, relative paths will be merged with the existing path,
+defaults to a L<Mojo::Path> object.
+
+  # "http://example.com/DOM/HTML"
+  Mojo::URL->new('http://example.com/perldoc/Mojo')->path('/DOM/HTML');
+
+  # "http://example.com/perldoc/DOM/HTML"
+  Mojo::URL->new('http://example.com/perldoc/Mojo')->path('DOM/HTML');
+
+  # "http://example.com/perldoc/Mojo/DOM/HTML"
+  Mojo::URL->new('http://example.com/perldoc/Mojo/')->path('DOM/HTML');
+
+=head2 path_query
+
+  my $path_query = $url->path_query;
+
+Normalized version of L</"path"> and L</"query">.
+
+=head2 protocol
+
+  my $proto = $url->protocol;
+
+Normalized version of L</"scheme">.
+
+  # "http"
+  Mojo::URL->new('HtTp://example.com')->protocol;
+
+=head2 query
+
+  my $query = $url->query;
+  $url      = $url->query(replace => 'with');
+  $url      = $url->query([merge => 'with']);
+  $url      = $url->query({append => 'to'});
+  $url      = $url->query(Mojo::Parameters->new);
+
+Query part of this URL, pairs in an array will be merged and pairs in a hash
+appended, defaults to a L<Mojo::Parameters> object.
+
+  # "2"
+  Mojo::URL->new('http://example.com?a=1&b=2')->query->param('b');
+
+  # "http://example.com?a=2&c=3"
+  Mojo::URL->new('http://example.com?a=1&b=2')->query(a => 2, c => 3);
+
+  # "http://example.com?a=2&a=3"
+  Mojo::URL->new('http://example.com?a=1&b=2')->query(a => [2, 3]);
+
+  # "http://example.com?a=2&b=2&c=3"
+  Mojo::URL->new('http://example.com?a=1&b=2')->query([a => 2, c => 3]);
+
+  # "http://example.com?b=2"
+  Mojo::URL->new('http://example.com?a=1&b=2')->query([a => undef]);
+
+  # "http://example.com?a=1&b=2&a=2&c=3"
+  Mojo::URL->new('http://example.com?a=1&b=2')->query({a => 2, c => 3});
+
+=head2 to_abs
+
+  my $abs = $url->to_abs;
+  my $abs = $url->to_abs(Mojo::URL->new('http://example.com/foo'));
+
+Clone relative URL and turn it into an absolute one using L</"base"> or
+provided base URL.
+
+  # "http://example.com/foo/baz.xml?test=123"
+  Mojo::URL->new('baz.xml?test=123')
+    ->to_abs(Mojo::URL->new('http://example.com/foo/bar.html'));
+
+  # "http://example.com/baz.xml?test=123"
+  Mojo::URL->new('/baz.xml?test=123')
+    ->to_abs(Mojo::URL->new('http://example.com/foo/bar.html'));
+
+  # "http://example.com/foo/baz.xml?test=123"
+  Mojo::URL->new('//example.com/foo/baz.xml?test=123')
+    ->to_abs(Mojo::URL->new('http://example.com/foo/bar.html'));
+
+=head2 to_string
+
+  my $str = $url->to_string;
+
+Turn URL into a string.
+
+=head1 OPERATORS
+
+L<Mojo::URL> overloads the following operators.
+
+=head2 bool
+
+  my $bool = !!$url;
+
+Always true.
+
+=head2 stringify
+
+  my $str = "$url";
+
+Alias for L</to_string>.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

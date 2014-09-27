@@ -1,648 +1,643 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::Message;
-
-use strict;
-use warnings;
-
-use base 'Mojo::Stateful';
-use overload '""' => sub { shift->to_string }, fallback => 1;
-use bytes;
+use Mojo::Base 'Mojo::EventEmitter';
 
 use Carp 'croak';
 use Mojo::Asset::Memory;
-use Mojo::Buffer;
 use Mojo::Content::Single;
+use Mojo::DOM;
+use Mojo::JSON 'j';
+use Mojo::JSON::Pointer;
 use Mojo::Parameters;
 use Mojo::Upload;
+use Mojo::Util qw(decode split_header);
 
-use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 4096;
-
-__PACKAGE__->attr(buffer  => sub { Mojo::Buffer->new });
-__PACKAGE__->attr(content => sub { Mojo::Content::Single->new });
-__PACKAGE__->attr([qw/major_version minor_version/] => 1);
-
-__PACKAGE__->attr([qw/_body_params _cookies _uploads/]);
-
-# I'll keep it short and sweet. Family. Religion. Friendship.
-# These are the three demons you must slay if you wish to succeed in
-# business.
-sub at_least_version {
-    my ($self, $version) = @_;
-    my ($major, $minor) = split /\./, $version;
-
-    # Version is equal or newer
-    return 1 if $major < $self->major_version;
-    if ($major == $self->major_version) {
-        return 1 if $minor <= $self->minor_version;
-    }
-
-    # Version is older
-    return;
-}
+has content => sub { Mojo::Content::Single->new };
+has default_charset  => 'UTF-8';
+has max_line_size    => sub { $ENV{MOJO_MAX_LINE_SIZE} || 10240 };
+has max_message_size => sub { $ENV{MOJO_MAX_MESSAGE_SIZE} // 10485760 };
+has version          => '1.1';
 
 sub body {
-    my $self = shift;
+  my $self = shift;
 
-    # Downgrade multipart content
-    $self->content(Mojo::Content::Single->new)
-      if $self->content->isa('Mojo::Content::MultiPart');
+  # Downgrade multipart content
+  my $content = $self->content;
+  $content = $self->content(Mojo::Content::Single->new)->content
+    if $content->is_multipart;
 
-    # Get
-    unless (@_) {
-        return $self->body_cb
-          ? $self->body_cb
-          : return $self->content->asset->slurp;
-    }
+  # Get
+  return $content->asset->slurp unless @_;
 
-    # New content
-    my $content = shift;
+  # Set
+  $content->asset(Mojo::Asset::Memory->new->add_chunk(@_));
 
-    # Cleanup
-    $self->body_cb(undef);
-    $self->content->asset(Mojo::Asset::Memory->new);
-
-    # Shortcut
-    return $self unless defined $content;
-
-    # Callback
-    if (ref $content eq 'CODE') { $self->body_cb($content) }
-
-    # Set text content
-    elsif (length $content) { $self->content->asset->add_chunk($content) }
-
-    return $self;
+  return $self;
 }
 
-sub body_cb { shift->content->body_cb(@_) }
-
 sub body_params {
-    my $self = shift;
+  my $self = shift;
 
-    # Cached
-    return $self->_body_params if $self->_body_params;
+  return $self->{body_params} if $self->{body_params};
+  my $params = $self->{body_params} = Mojo::Parameters->new;
+  $params->charset($self->content->charset || $self->default_charset);
 
-    my $params = Mojo::Parameters->new;
-    my $type = $self->headers->content_type || '';
+  # "application/x-www-form-urlencoded"
+  my $type = $self->headers->content_type // '';
+  if ($type =~ m!application/x-www-form-urlencoded!i) {
+    $params->parse($self->content->asset->slurp);
+  }
 
-    # Charset
-    $type =~ /charset=\"?(\S+)\"?/;
-    $params->charset($1) if $1;
+  # "multipart/form-data"
+  elsif ($type =~ m!multipart/form-data!i) {
+    $params->append(@$_[0, 1]) for @{$self->_parse_formdata};
+  }
 
-    # "x-application-urlencoded" and "application/x-www-form-urlencoded"
-    if ($type =~ /(?:x-application|application\/x-www-form)-urlencoded/i) {
-
-        # Parse
-        $params->parse($self->content->asset->slurp);
-    }
-
-    # "multipart/formdata"
-    elsif ($type =~ /multipart\/form-data/i) {
-        my $formdata = $self->_parse_formdata;
-
-        # Formdata
-        for my $data (@$formdata) {
-            my $name     = $data->[0];
-            my $filename = $data->[1];
-            my $part     = $data->[2];
-
-            # Form field
-            $params->append($name, $part->asset->slurp) unless $filename;
-        }
-    }
-
-    # Cache
-    return $self->_body_params($params)->_body_params;
+  return $params;
 }
 
 sub body_size { shift->content->body_size }
 
-sub build {
-    my $self    = shift;
-    my $message = '';
+sub build_body       { shift->_build('get_body_chunk') }
+sub build_headers    { shift->_build('get_header_chunk') }
+sub build_start_line { shift->_build('get_start_line_chunk') }
 
-    # Start line
-    $message .= $self->build_start_line;
+sub cookie { shift->_cache(cookie => @_) }
 
-    # Headers
-    $message .= $self->build_headers;
+sub cookies { croak 'Method "cookies" not implemented by subclass' }
 
-    # Body
-    $message .= $self->build_body;
-
-    return $message;
+sub dom {
+  my $self = shift;
+  return undef if $self->content->is_multipart;
+  my $dom = $self->{dom} ||= Mojo::DOM->new($self->text);
+  return @_ ? $dom->find(@_) : $dom;
 }
 
-# My new movie is me, standing in front of a brick wall for 90 minutes.
-# It cost 80 million dollars to make.
-# How do you sleep at night?
-# On top of a pile of money, with many beautiful women.
-sub build_body { shift->content->build_body(@_) }
-
-sub build_headers {
-    my $self = shift;
-
-    # HTTP 0.9 has no headers
-    return '' if $self->version eq '0.9';
-
-    # Fix headers
-    $self->fix_headers;
-
-    return $self->content->build_headers;
+sub error {
+  my $self = shift;
+  return $self->{error} unless @_;
+  $self->{error} = shift;
+  return $self->finish;
 }
 
-sub build_start_line {
-    my $self = shift;
-
-    my $startline = '';
-    my $offset    = 0;
-    while (1) {
-        my $chunk = $self->get_start_line_chunk($offset);
-
-        # No start line yet, try again
-        next unless defined $chunk;
-
-        # End of start line
-        last unless length $chunk;
-
-        # Start line
-        $offset += length $chunk;
-        $startline .= $chunk;
-    }
-
-    return $startline;
+sub extract_start_line {
+  croak 'Method "extract_start_line" not implemented by subclass';
 }
 
-sub cookie {
-    my ($self, $name) = @_;
-
-    # Shortcut
-    return unless $name;
-
-    # Map
-    unless ($self->_cookies) {
-        my $cookies = {};
-        for my $cookie (@{$self->cookies}) {
-            my $cname = $cookie->name;
-
-            # Multiple cookies with same name
-            if (exists $cookies->{$cname}) {
-                $cookies->{$cname} = [$cookies->{$cname}]
-                  unless ref $cookies->{$cname} eq 'ARRAY';
-                push @{$cookies->{$cname}}, $cookie;
-            }
-
-            # Cookie
-            else { $cookies->{$cname} = $cookie }
-        }
-
-        # Cache
-        $self->_cookies($cookies);
-    }
-
-    # Multiple?
-    my @cookies =
-      ref $self->_cookies->{$name} eq 'ARRAY'
-      ? @{$self->_cookies->{$name}}
-      : ($self->_cookies->{$name});
-
-    # Context?
-    return wantarray ? @cookies : $cookies[0];
+sub finish {
+  my $self = shift;
+  $self->{state} = 'finished';
+  return $self->{finished}++ ? $self : $self->emit('finish');
 }
 
 sub fix_headers {
-    my $self = shift;
+  my $self = shift;
+  return $self if $self->{fix}++;
 
-    # Content-Length header is required in HTTP 1.0 (and above) messages if
-    # there's a body, sadly many clients are expecting broken server behavior
-    # if the Content-Length header is missing, so we are defaulting to
-    # "Content-Length: 0" which has proven to just work in the real world
-    if ($self->at_least_version('1.0') && !$self->is_chunked) {
-        $self->headers->content_length($self->body_size)
-          unless $self->headers->content_length;
-    }
+  # Content-Length or Connection (unless chunked transfer encoding is used)
+  my $content = $self->content;
+  my $headers = $content->headers;
+  return $self if $content->is_chunked || $headers->content_length;
+  if   ($content->is_dynamic) { $headers->connection('close') }
+  else                        { $headers->content_length($self->body_size) }
 
-    return $self;
+  return $self;
 }
 
-sub get_body_chunk { shift->content->get_body_chunk(@_) }
+sub get_body_chunk {
+  my ($self, $offset) = @_;
+
+  $self->emit('progress', 'body', $offset);
+  my $chunk = $self->content->get_body_chunk($offset);
+  return $chunk if !defined $chunk || length $chunk;
+  $self->finish;
+
+  return $chunk;
+}
 
 sub get_header_chunk {
-    my $self = shift;
-
-    # Progress
-    $self->progress_cb->($self, 'headers', @_) if $self->progress_cb;
-
-    # HTTP 0.9 has no headers
-    return '' if $self->version eq '0.9';
-
-    # Fix headers
-    $self->fix_headers;
-
-    $self->content->get_header_chunk(@_);
+  my ($self, $offset) = @_;
+  $self->emit('progress', 'headers', $offset);
+  return $self->fix_headers->content->get_header_chunk($offset);
 }
 
 sub get_start_line_chunk {
-    my ($self, $offset) = @_;
-
-    # Progress
-    $self->progress_cb->($self, 'start_line', $offset) if $self->progress_cb;
-
-    my $copy = $self->_build_start_line;
-    return substr($copy, $offset, CHUNK_SIZE);
+  croak 'Method "get_start_line_chunk" not implemented by subclass';
 }
 
-sub has_leftovers { shift->content->has_leftovers }
+sub header_size { shift->fix_headers->content->header_size }
 
-sub header_size {
-    my $self = shift;
+sub headers { shift->content->headers }
 
-    # Fix headers
-    $self->fix_headers;
+sub is_finished { (shift->{state} // '') eq 'finished' }
 
-    return $self->content->header_size;
+sub is_limit_exceeded { !!shift->{limit} }
+
+sub json {
+  my ($self, $pointer) = @_;
+  return undef if $self->content->is_multipart;
+  my $data = $self->{json} //= j($self->body);
+  return $pointer ? Mojo::JSON::Pointer->new($data)->get($pointer) : $data;
 }
 
-sub headers { shift->content->headers(@_) }
-
-sub is_chunked { shift->content->is_chunked }
-
-sub is_multipart { shift->content->is_multipart }
-
-sub leftovers { shift->content->leftovers }
-
-sub param {
-    my $self = shift;
-    $self->{body_params} ||= $self->body_params;
-    return $self->{body_params}->param(@_);
-}
+sub param { shift->body_params->param(@_) }
 
 sub parse {
-    my ($self, $chunk) = @_;
+  my ($self, $chunk) = @_;
 
-    # Buffer
-    $self->buffer->add_chunk($chunk) if defined $chunk;
+  # Check message size
+  my $max = $self->max_message_size;
+  return $self->_limit('Maximum message size exceeded', 413)
+    if $max && ($self->{raw_size} += length($chunk //= '')) > $max;
 
-    return $self->_parse(0);
+  $self->{buffer} .= $chunk;
+
+  # Start line
+  unless ($self->{state}) {
+
+    # Check line size
+    my $len = index $self->{buffer}, "\x0a";
+    $len = length $self->{buffer} if $len < 0;
+    return $self->_limit('Maximum line size exceeded', 431)
+      if $len > $self->max_line_size;
+
+    $self->{state} = 'content' if $self->extract_start_line(\$self->{buffer});
+  }
+
+  # Content
+  my $state = $self->{state} // '';
+  $self->content($self->content->parse(delete $self->{buffer}))
+    if $state eq 'content' || $state eq 'finished';
+
+  # Check line size
+  return $self->_limit('Maximum line size exceeded', 431)
+    if $self->headers->is_limit_exceeded;
+
+  # Check buffer size
+  return $self->error(
+    {message => 'Maximum buffer size exceeded', advice => 400})
+    if $self->content->is_limit_exceeded;
+
+  return $self->emit('progress')->content->is_finished ? $self->finish : $self;
 }
-
-sub parse_until_body {
-    my ($self, $chunk) = @_;
-
-    # Buffer
-    $self->buffer->add_chunk($chunk);
-
-    return $self->_parse(1);
-}
-
-sub progress_cb { shift->content->progress_cb(@_) }
 
 sub start_line_size { length shift->build_start_line }
 
-sub to_string { shift->build(@_) }
-
-sub upload {
-    my ($self, $name) = @_;
-
-    # Shortcut
-    return unless $name;
-
-    # Map
-    unless ($self->_uploads) {
-        my $uploads = {};
-        for my $upload (@{$self->uploads}) {
-            my $uname = $upload->name;
-
-            # Multiple uploads with same name
-            if (exists $uploads->{$name}) {
-                $uploads->{$uname} = [$uploads->{$uname}]
-                  unless ref $uploads->{$uname} eq 'ARRAY';
-                push @{$uploads->{$uname}}, $upload;
-            }
-
-            # Upload
-            else { $uploads->{$uname} = $upload }
-        }
-
-        # Cache
-        $self->_uploads($uploads);
-    }
-
-    my @uploads =
-      ref $self->_uploads->{$name} eq 'ARRAY'
-      ? @{$self->_uploads->{$name}}
-      : ($self->_uploads->{$name});
-    return wantarray ? @uploads : $uploads[0];
+sub text {
+  my $self    = shift;
+  my $body    = $self->body;
+  my $charset = $self->content->charset;
+  return $charset ? decode($charset, $body) // $body : $body;
 }
+
+sub to_string {
+  my $self = shift;
+  return $self->build_start_line . $self->build_headers . $self->build_body;
+}
+
+sub upload { shift->_cache(upload => @_) }
 
 sub uploads {
-    my $self = shift;
+  my $self = shift;
 
-    my @uploads;
-    return \@uploads unless $self->is_multipart;
+  my @uploads;
+  for my $data (@{$self->_parse_formdata(1)}) {
+    my $upload = Mojo::Upload->new(
+      name     => $data->[0],
+      filename => $data->[2],
+      asset    => $data->[1]->asset,
+      headers  => $data->[1]->headers
+    );
+    push @uploads, $upload;
+  }
 
-    my $formdata = $self->_parse_formdata;
-
-    # Formdata
-    for my $data (@$formdata) {
-        my $name     = $data->[0];
-        my $filename = $data->[1];
-        my $part     = $data->[2];
-
-        next unless $filename;
-
-        my $upload = Mojo::Upload->new;
-        $upload->name($name);
-        $upload->asset($part->asset);
-        $upload->filename($filename);
-        $upload->headers($part->headers);
-
-        push @uploads, $upload;
-    }
-
-    return \@uploads;
+  return \@uploads;
 }
 
-sub version {
-    my ($self, $version) = @_;
+sub _build {
+  my ($self, $method) = @_;
 
-    # Return normalized version
-    unless ($version) {
-        my $major = $self->major_version;
-        $major = 1 unless defined $major;
-        my $minor = $self->minor_version;
-        $minor = 1 unless defined $minor;
-        return "$major.$minor";
-    }
+  my $buffer = '';
+  my $offset = 0;
+  while (1) {
 
-    # New version
-    my ($major, $minor) = split /\./, $version;
-    $self->major_version($major);
-    $self->minor_version($minor);
+    # No chunk yet, try again
+    next unless defined(my $chunk = $self->$method($offset));
 
-    return $self;
+    # End of part
+    last unless my $len = length $chunk;
+
+    $offset += $len;
+    $buffer .= $chunk;
+  }
+
+  return $buffer;
 }
 
-sub _build_start_line {
-    croak 'Method "_build_start_line" not implemented by subclass';
+sub _cache {
+  my ($self, $method, $name) = @_;
+
+  # Multiple names
+  return map { scalar $self->$method($_) } @$name if ref $name eq 'ARRAY';
+
+  # Cache objects by name
+  $method .= 's';
+  unless ($self->{$method}) {
+    $self->{$method} = {};
+    push @{$self->{$method}{$_->name}}, $_ for @{$self->$method};
+  }
+
+  return unless my $objects = $self->{$method}{$name};
+  return wantarray ? @$objects : $objects->[0];
 }
 
-sub _parse {
-    my $self = shift;
-    my $until_body = @_ ? shift : 0;
-
-    # Progress
-    $self->progress_cb->($self) if $self->progress_cb;
-
-    # Content
-    if ($self->is_state(qw/content done done_with_leftovers/)) {
-        my $content = $self->content;
-
-        # HTTP 0.9 has no headers
-        $content->state('body') if $self->version eq '0.9';
-
-        # Parse
-        $content->filter_buffer($self->buffer);
-
-        # Until body
-        if ($until_body) { $self->content($content->parse_until_body) }
-
-        # Whole message
-        else { $self->content($content->parse) }
-
-        # HTTP 0.9 has no defined length
-        $content->state('done') if $self->version eq '0.9';
-    }
-
-    # Done
-    $self->done if $self->content->is_done;
-
-    # Done with leftovers, maybe pipelined
-    $self->state('done_with_leftovers')
-      if $self->content->is_state('done_with_leftovers');
-
-    return $self;
+sub _limit {
+  my ($self, $msg, $code) = @_;
+  $self->{limit} = 1;
+  return $self->error({message => $msg, advice => $code});
 }
 
 sub _parse_formdata {
-    my $self = shift;
+  my ($self, $upload) = @_;
 
-    my @formdata;
+  my @formdata;
+  my $content = $self->content;
+  return \@formdata unless $content->is_multipart;
+  my $charset = $content->charset || $self->default_charset;
 
-    # Check content
-    my $content = $self->content;
-    return \@formdata unless $content->is_multipart;
+  # Check all parts recursively
+  my @parts = ($content);
+  while (my $part = shift @parts) {
 
-    # Walk the tree
-    my @parts;
-    push @parts, $content;
-    while (my $part = shift @parts) {
-
-        # Multipart?
-        if ($part->is_multipart) {
-            unshift @parts, @{$part->parts};
-            next;
-        }
-
-        # "Content-Disposition"
-        my $disposition = $part->headers->content_disposition;
-        next unless $disposition;
-        my ($name)     = $disposition =~ /\ name="?([^\";]+)"?/;
-        my ($filename) = $disposition =~ /\ filename="?([^\"]*)"?/;
-
-        push @formdata, [$name, $filename, $part];
+    if ($part->is_multipart) {
+      unshift @parts, @{$part->parts};
+      next;
     }
 
-    return \@formdata;
+    next unless my $disposition = $part->headers->content_disposition;
+    my ($filename) = $disposition =~ /[; ]filename="((?:\\"|[^"])*)"/;
+    next if $upload && !defined $filename || !$upload && defined $filename;
+    my ($name) = $disposition =~ /[; ]name="((?:\\"|[^;"])*)"/;
+    $part = $part->asset->slurp unless $upload;
+
+    if ($charset) {
+      $name     = decode($charset, $name)     // $name     if $name;
+      $filename = decode($charset, $filename) // $filename if $filename;
+      $part = decode($charset, $part) // $part unless $upload;
+    }
+
+    push @formdata, [$name, $part, $filename];
+  }
+
+  return \@formdata;
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
-Mojo::Message - Message Base Class
+Mojo::Message - HTTP message base class
 
 =head1 SYNOPSIS
 
-    use base 'Mojo::Message';
+  package Mojo::Message::MyMessage;
+  use Mojo::Base 'Mojo::Message';
+
+  sub cookies              {...}
+  sub extract_start_line   {...}
+  sub get_start_line_chunk {...}
 
 =head1 DESCRIPTION
 
-L<Mojo::Message> is a base class for HTTP messages.
+L<Mojo::Message> is an abstract base class for HTTP messages based on
+L<RFC 7230|http://tools.ietf.org/html/rfc7230>,
+L<RFC 7231|http://tools.ietf.org/html/rfc7231> and
+L<RFC 2388|http://tools.ietf.org/html/rfc2388>.
+
+=head1 EVENTS
+
+L<Mojo::Message> inherits all events from L<Mojo::EventEmitter> and can emit
+the following new ones.
+
+=head2 finish
+
+  $msg->on(finish => sub {
+    my $msg = shift;
+    ...
+  });
+
+Emitted after message building or parsing is finished.
+
+  my $before = time;
+  $msg->on(finish => sub {
+    my $msg = shift;
+    $msg->headers->header('X-Parser-Time' => time - $before);
+  });
+
+=head2 progress
+
+  $msg->on(progress => sub {
+    my $msg = shift;
+    ...
+  });
+
+Emitted when message building or parsing makes progress.
+
+  # Building
+  $msg->on(progress => sub {
+    my ($msg, $state, $offset) = @_;
+    say qq{Building "$state" at offset $offset};
+  });
+
+  # Parsing
+  $msg->on(progress => sub {
+    my $msg = shift;
+    return unless my $len = $msg->headers->content_length;
+    my $size = $msg->content->progress;
+    say 'Progress: ', $size == $len ? 100 : int($size / ($len / 100)), '%';
+  });
 
 =head1 ATTRIBUTES
 
-L<Mojo::Message> inherits all attributes from L<Mojo::Stateful> and
-implements the following new ones.
+L<Mojo::Message> implements the following attributes.
 
-=head2 C<body_cb>
+=head2 content
 
-    my $cb = $message->body_cb;
+  my $msg = $msg->content;
+  $msg    = $msg->content(Mojo::Content::Single->new);
 
-    $counter = 1;
-    $message = $message->body_cb(sub {
-        my $self  = shift;
-        my $chunk = '';
-        $chunk    = "hello world!" if $counter == 1;
-        $chunk    = "hello world2!\n\n" if $counter == 2;
-        $counter++;
-        return $chunk;
-    });
+Message content, defaults to a L<Mojo::Content::Single> object.
 
-=head2 C<buffer>
+=head2 default_charset
 
-    my $buffer = $message->buffer;
-    $message   = $message->buffer(Mojo::Buffer->new);
+  my $charset = $msg->default_charset;
+  $msg        = $msg->default_charset('UTF-8');
 
-=head2 C<content>
+Default charset used for form-data parsing, defaults to C<UTF-8>.
 
-    my $content = $message->content;
-    $message    = $message->content(Mojo::Content::Single->new);
+=head2 max_line_size
 
-=head2 C<headers>
+  my $size = $msg->max_line_size;
+  $msg     = $msg->max_line_size(1024);
 
-    my $headers = $message->headers;
-    $message    = $message->headers(Mojo::Headers->new);
+Maximum start line size in bytes, defaults to the value of the
+C<MOJO_MAX_LINE_SIZE> environment variable or C<10240> (10KB).
 
-=head2 C<major_version>
+=head2 max_message_size
 
-    my $major_version = $message->major_version;
-    $message          = $message->major_version(1);
+  my $size = $msg->max_message_size;
+  $msg     = $msg->max_message_size(1024);
 
-=head2 C<minor_version>
+Maximum message size in bytes, defaults to the value of the
+C<MOJO_MAX_MESSAGE_SIZE> environment variable or C<10485760> (10MB). Setting
+the value to C<0> will allow messages of indefinite size. Note that increasing
+this value can also drastically increase memory usage, should you for example
+attempt to parse an excessively large message body with the L</"body_params">,
+L</"dom"> or L</"json"> methods.
 
-    my $minor_version = $message->minor_version;
-    $message          = $message->minor_version(1);
+=head2 version
 
-=head2 C<progress_cb>
+  my $version = $msg->version;
+  $msg        = $msg->version('1.1');
 
-    my $cb   = $message->progress_cb;
-    $message = $message->progress_cb(sub {
-        my $self = shift;
-        print '+';
-    });
+HTTP version of message, defaults to C<1.1>.
 
 =head1 METHODS
 
-L<Mojo::Message> inherits all methods from L<Mojo::Stateful> and implements
-the following new ones.
+L<Mojo::Message> inherits all methods from L<Mojo::EventEmitter> and
+implements the following new ones.
 
-=head2 C<at_least_version>
+=head2 body
 
-    my $success = $message->at_least_version('1.1');
+  my $bytes = $msg->body;
+  $msg      = $msg->body('Hello!');
 
-=head2 C<body>
+Slurp or replace L</"content">, L<Mojo::Content::MultiPart> will be
+automatically downgraded to L<Mojo::Content::Single>.
 
-    my $string = $message->body;
-    $message   = $message->body('Hello!');
+=head2 body_params
 
-    $counter = 1;
-    $message = $message->body(sub {
-        my $self  = shift;
-        my $chunk = '';
-        $chunk    = "hello world!" if $counter == 1;
-        $chunk    = "hello world2!\n\n" if $counter == 2;
-        $counter++;
-        return $chunk;
-    });
+  my $params = $msg->body_params;
 
-=head2 C<body_params>
+C<POST> parameters extracted from C<application/x-www-form-urlencoded> or
+C<multipart/form-data> message body, usually a L<Mojo::Parameters> object.
+Note that this method caches all data, so it should not be called before the
+entire message body has been received. Parts of the message body need to be
+loaded into memory to parse C<POST> parameters, so you have to make sure it is
+not excessively large, there's a 10MB limit by default.
 
-    my $params = $message->body_params;
+  # Get POST parameter value
+  say $msg->body_params->param('foo');
 
-=head2 C<body_size>
+=head2 body_size
 
-    my $size = $message->body_size;
+  my $size = $msg->body_size;
 
-=head2 C<to_string>
+Content size in bytes.
 
-=head2 C<build>
+=head2 build_body
 
-    my $string = $message->build;
+  my $bytes = $msg->build_body;
 
-=head2 C<build_body>
+Render whole body.
 
-    my $string = $message->build_body;
+=head2 build_headers
 
-=head2 C<build_headers>
+  my $bytes = $msg->build_headers;
 
-    my $string = $message->build_headers;
+Render all headers.
 
-=head2 C<build_start_line>
+=head2 build_start_line
 
-    my $string = $message->build_start_line;
+  my $bytes = $msg->build_start_line;
 
-=head2 C<cookie>
+Render start line.
 
-    my $cookie  = $message->cookie('foo');
-    my @cookies = $message->cookie('foo');
+=head2 cookie
 
-=head2 C<fix_headers>
+  my $foo         = $msg->cookie('foo');
+  my @foo         = $msg->cookie('foo');
+  my ($foo, $bar) = $msg->cookie(['foo', 'bar']);
 
-    $message = $message->fix_headers;
+Access message cookies, usually L<Mojo::Cookie::Request> or
+L<Mojo::Cookie::Response> objects. Note that this method caches all data, so
+it should not be called before all headers have been received.
 
-=head2 C<get_body_chunk>
+  # Get cookie value
+  say $msg->cookie('foo')->value;
 
-    my $string = $message->get_body_chunk($offset);
+=head2 cookies
 
-=head2 C<get_header_chunk>
+  my $cookies = $msg->cookies;
 
-    my $string = $message->get_header_chunk($offset);
+Access message cookies. Meant to be overloaded in a subclass.
 
-=head2 C<get_start_line_chunk>
+=head2 dom
 
-    my $string = $message->get_start_line_chunk($offset);
+  my $dom        = $msg->dom;
+  my $collection = $msg->dom('a[href]');
 
-=head2 C<has_leftovers>
+Turns message body into a L<Mojo::DOM> object and takes an optional selector
+to call the method L<Mojo::DOM/"find"> on it right away, which returns a
+L<Mojo::Collection> object. Note that this method caches all data, so it
+should not be called before the entire message body has been received. The
+whole message body needs to be loaded into memory to parse it, so you have to
+make sure it is not excessively large, there's a 10MB limit by default.
 
-    my $leftovers = $message->has_leftovers;
+  # Perform "find" right away
+  say $msg->dom('h1, h2, h3')->text;
 
-=head2 C<header_size>
+  # Use everything else Mojo::DOM has to offer
+  say $msg->dom->at('title')->text;
+  say $msg->dom->html->body->children->type->uniq;
 
-    my $size = $message->header_size;
+=head2 error
 
-=head2 C<is_chunked>
+  my $err = $msg->error;
+  $msg    = $msg->error({message => 'Parser error', advice => 500});
 
-    my $chunked = $message->is_chunked;
+Get or set message error, an C<undef> return value indicates that there is no
+error.
 
-=head2 C<is_multipart>
+=head2 extract_start_line
 
-    my $multipart = $message->is_multipart;
+  my $bool = $msg->extract_start_line(\$str);
 
-=head2 C<leftovers>
+Extract start line from string. Meant to be overloaded in a subclass.
 
-    my $bytes = $message->leftovers;
+=head2 finish
 
-=head2 C<param>
+  $msg = $msg->finish;
 
-    my $param  = $message->param('foo');
-    my @params = $message->param('foo');
+Finish message parser/generator.
 
-=head2 C<parse>
+=head2 fix_headers
 
-    $message = $message->parse('HTTP/1.1 200 OK...');
+  $msg = $msg->fix_headers;
 
-=head2 C<parse_until_body>
+Make sure message has all required headers.
 
-    $message = $message->parse_until_body('HTTP/1.1 200 OK...');
+=head2 get_body_chunk
 
-=head2 C<start_line_size>
+  my $bytes = $msg->get_body_chunk($offset);
 
-    my $size = $message->start_line_size;
+Get a chunk of body data starting from a specific position.
 
-=head2 C<upload>
+=head2 get_header_chunk
 
-    my $upload  = $message->upload('foo');
-    my @uploads = $message->upload('foo');
+  my $bytes = $msg->get_header_chunk($offset);
 
-=head2 C<uploads>
+Get a chunk of header data, starting from a specific position.
 
-    my $uploads = $message->uploads;
+=head2 get_start_line_chunk
 
-=head2 C<version>
+  my $bytes = $msg->get_start_line_chunk($offset);
 
-    my $version = $message->version;
-    $message    = $message->version('1.1');
+Get a chunk of start line data starting from a specific position. Meant to be
+overloaded in a subclass.
+
+=head2 header_size
+
+  my $size = $msg->header_size;
+
+Size of headers in bytes.
+
+=head2 headers
+
+  my $headers = $msg->headers;
+
+Message headers, usually a L<Mojo::Headers> object.
+
+=head2 is_finished
+
+  my $bool = $msg->is_finished;
+
+Check if message parser/generator is finished.
+
+=head2 is_limit_exceeded
+
+  my $bool = $msg->is_limit_exceeded;
+
+Check if message has exceeded L</"max_line_size"> or L</"max_message_size">.
+
+=head2 json
+
+  my $value = $msg->json;
+  my $value = $msg->json('/foo/bar');
+
+Decode JSON message body directly using L<Mojo::JSON> if possible, an C<undef>
+return value indicates a bare C<null> or that decoding failed. An optional
+JSON Pointer can be used to extract a specific value with
+L<Mojo::JSON::Pointer>. Note that this method caches all data, so it should
+not be called before the entire message body has been received. The whole
+message body needs to be loaded into memory to parse it, so you have to make
+sure it is not excessively large, there's a 10MB limit by default.
+
+  # Extract JSON values
+  say $msg->json->{foo}{bar}[23];
+  say $msg->json('/foo/bar/23');
+
+=head2 param
+
+  my @names       = $msg->param;
+  my $foo         = $msg->param('foo');
+  my @foo         = $msg->param('foo');
+  my ($foo, $bar) = $msg->param(['foo', 'bar']);
+
+Access C<POST> parameters extracted from C<application/x-www-form-urlencoded>
+or C<multipart/form-data> message body. Note that this method caches all data,
+so it should not be called before the entire message body has been received.
+Parts of the message body need to be loaded into memory to parse C<POST>
+parameters, so you have to make sure it is not excessively large, there's a
+10MB limit by default.
+
+=head2 parse
+
+  $msg = $msg->parse('HTTP/1.1 200 OK...');
+
+Parse message chunk.
+
+=head2 start_line_size
+
+  my $size = $msg->start_line_size;
+
+Size of the start line in bytes.
+
+=head2 text
+
+  my $str = $msg->text;
+
+Retrieve L</"body"> and try to decode it if a charset could be extracted with
+L<Mojo::Content/"charset">.
+
+=head2 to_string
+
+  my $str = $msg->to_string;
+
+Render whole message.
+
+=head2 upload
+
+  my $foo         = $msg->upload('foo');
+  my @foo         = $msg->upload('foo');
+  my ($foo, $bar) = $msg->upload(['foo', 'bar']);
+
+Access C<multipart/form-data> file uploads, usually L<Mojo::Upload> objects.
+Note that this method caches all data, so it should not be called before the
+entire message body has been received.
+
+  # Get content of uploaded file
+  say $msg->upload('foo')->asset->slurp;
+
+=head2 uploads
+
+  my $uploads = $msg->uploads;
+
+All C<multipart/form-data> file uploads, usually L<Mojo::Upload> objects.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

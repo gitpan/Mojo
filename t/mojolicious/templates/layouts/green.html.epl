@@ -1,10 +1,8 @@
-%# This is the worst part. The calm before the battle.
-%# And then the battle is not so bad?
-%# Oh, right. I forgot about the battle.
 % my $self = shift;
-<!doctype html><html>
+<!DOCTYPE html>
+<html>
 <head></head>
 <body>
-Same old in green <%= $self->render_inner %>
+Same old in green <%= $self->content %>
 </body>
 </html>

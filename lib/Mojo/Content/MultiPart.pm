@@ -1,291 +1,308 @@
-# Copyright (C) 2008-2009, Sebastian Riedel.
-
 package Mojo::Content::MultiPart;
+use Mojo::Base 'Mojo::Content';
 
-use strict;
-use warnings;
+use Mojo::Util 'b64_encode';
 
-use base 'Mojo::Content';
-use bytes;
-
-use Mojo::ByteStream 'b';
-
-__PACKAGE__->attr(parts => sub { [] });
+has parts => sub { [] };
 
 sub body_contains {
-    my ($self, $chunk) = @_;
-
-    # Check parts
-    my $found = 0;
-    for my $part (@{$self->parts}) {
-        my $headers = $part->build_headers;
-        $found += 1 if $headers =~ /$chunk/g;
-        $found += $part->body_contains($chunk);
-    }
-    return $found ? 1 : 0;
+  my ($self, $chunk) = @_;
+  for my $part (@{$self->parts}) {
+    return 1 if index($part->build_headers, $chunk) >= 0;
+    return 1 if $part->body_contains($chunk);
+  }
+  return undef;
 }
 
 sub body_size {
-    my $self = shift;
+  my $self = shift;
 
-    my $length = 0;
+  # Check for existing Content-Lenght header
+  my $content_len = $self->headers->content_length;
+  return $content_len if $content_len;
 
-    # Check for Content-Lenght header
-    my $content_length = $self->headers->content_length;
-    return $content_length if $content_length;
+  # Calculate length of whole body
+  my $boundary_len = length($self->build_boundary) + 6;
+  my $len          = $boundary_len - 2;
+  $len += $_->header_size + $_->body_size + $boundary_len for @{$self->parts};
 
-    # Boundary
-    my $boundary = $self->build_boundary;
-
-    # Calculate length of whole body
-    my $boundary_length = length($boundary) + 6;
-    $length += $boundary_length;
-    for my $part (@{$self->parts}) {
-        $length += $part->header_size;
-        $length += $part->body_size;
-        $length += $boundary_length;
-    }
-
-    return $length;
+  return $len;
 }
 
 sub build_boundary {
-    my $self = shift;
+  my $self = shift;
 
-    # Check for existing boundary
-    ($self->headers->content_type || '') =~ /boundary=\"?([^\s\"]+)\"?/i;
-    my $boundary = $1;
-    return $boundary if $boundary;
+  # Check for existing boundary
+  if (defined(my $boundary = $self->boundary)) { return $boundary }
 
-    # Generate and check boundary
-    my $size = 1;
-    while (1) {
+  # Generate and check boundary
+  my $boundary;
+  my $size = 1;
+  while (1) {
+    $boundary = b64_encode join('', map chr(rand 256), 1 .. $size++ * 3);
+    $boundary =~ s/\W/X/g;
+    last unless $self->body_contains($boundary);
+  }
 
-        # Mostly taken from LWP
-        $boundary =
-          b(join('', map chr(rand(256)), 1 .. $size * 3))->b64_encode;
-        $boundary =~ s/\W/X/g;
+  # Add boundary to Content-Type header
+  my $headers = $self->headers;
+  ($headers->content_type // '') =~ m!^(.*multipart/[^;]+)(.*)$!;
+  my $before = $1 || 'multipart/mixed';
+  my $after  = $2 || '';
+  $headers->content_type("$before; boundary=$boundary$after");
 
-        # Check parts for boundary
-        last unless $self->body_contains($boundary);
-        $size++;
-    }
+  return $boundary;
+}
 
-    # Add boundary to Content-Type header
-    ($self->headers->content_type || '') =~ /^(.*multipart\/[^;]+)(.*)$/;
-    my $before = $1 || 'multipart/mixed';
-    my $after  = $2 || '';
-    $self->headers->content_type("$before; boundary=$boundary$after");
-
-    return $boundary;
+sub clone {
+  my $self = shift;
+  return undef unless my $clone = $self->SUPER::clone();
+  return $clone->parts($self->parts);
 }
 
 sub get_body_chunk {
-    my ($self, $offset) = @_;
+  my ($self, $offset) = @_;
 
-    # Body generator
-    return $self->generate_body_chunk($offset) if $self->body_cb;
+  # Body generator
+  return $self->generate_body_chunk($offset) if $self->{dynamic};
 
-    # Multipart
-    my $boundary        = $self->build_boundary;
-    my $boundary_length = length($boundary) + 6;
-    my $length          = $boundary_length;
+  # First boundary
+  my $boundary     = $self->build_boundary;
+  my $boundary_len = length($boundary) + 6;
+  my $len          = $boundary_len - 2;
+  return substr "--$boundary\x0d\x0a", $offset if $len > $offset;
 
-    # First boundary
-    return substr "\x0d\x0a--$boundary\x0d\x0a", $offset
-      if $length > $offset;
+  # Prepare content part by part
+  my $parts = $self->parts;
+  for (my $i = 0; $i < @$parts; $i++) {
+    my $part = $parts->[$i];
 
-    # Parts
-    for (my $i = 0; $i < @{$self->parts}; $i++) {
-        my $part = $self->parts->[$i];
+    # Headers
+    my $header_len = $part->header_size;
+    return $part->get_header_chunk($offset - $len)
+      if ($len + $header_len) > $offset;
+    $len += $header_len;
 
-        # Headers
-        my $header_length = $part->header_size;
-        return $part->get_header_chunk($offset - $length)
-          if ($length + $header_length) > $offset;
-        $length += $header_length;
+    # Content
+    my $content_len = $part->body_size;
+    return $part->get_body_chunk($offset - $len)
+      if ($len + $content_len) > $offset;
+    $len += $content_len;
 
-        # Content
-        my $content_length = $part->body_size;
-        return $part->get_body_chunk($offset - $length)
-          if ($length + $content_length) > $offset;
-        $length += $content_length;
+    # Boundary
+    if (($len + $boundary_len) > $offset) {
 
-        # Boundary
-        if (($length + $boundary_length) > $offset) {
+      # Last boundary
+      return substr "\x0d\x0a--$boundary--", $offset - $len
+        if $#{$parts} == $i;
 
-            # Last boundary
-            return substr "\x0d\x0a--$boundary--", $offset - $length
-              if $#{$self->parts} == $i;
-
-            # Middle boundary
-            return substr "\x0d\x0a--$boundary\x0d\x0a", $offset - $length;
-        }
-        $length += $boundary_length;
+      # Middle boundary
+      return substr "\x0d\x0a--$boundary\x0d\x0a", $offset - $len;
     }
+    $len += $boundary_len;
+  }
 }
 
-sub parse {
-    my $self = shift;
+sub is_multipart {1}
 
-    # Parse headers and filter body
-    $self->SUPER::parse(@_);
-
-    # Custom body parser
-    return $self if $self->body_cb;
-
-    # Upgrade state
-    $self->state('multipart_preamble') if $self->is_state('body');
-
-    # Parse multipart content
-    $self->_parse_multipart;
-
-    return $self;
-}
-
-sub _parse_multipart {
-    my $self = shift;
-
-    # We need a boundary
-    $self->headers->content_type
-      =~ /.*boundary=\"*([a-zA-Z0-9\'\(\)\,\.\:\?\-\_\+\/]+).*/;
-    my $boundary = $1;
-
-    # Boundary missing
-    return $self->error('Parser error: Boundary missing or invalid.')
-      unless $boundary;
-
-    # Spin
-    while (1) {
-
-        # Done?
-        last if $self->is_state('done', 'error');
-
-        # Preamble
-        if ($self->is_state('multipart_preamble')) {
-            last unless $self->_parse_multipart_preamble($boundary);
-        }
-
-        # Boundary
-        elsif ($self->is_state('multipart_boundary')) {
-            last unless $self->_parse_multipart_boundary($boundary);
-        }
-
-        # Body
-        elsif ($self->is_state('multipart_body')) {
-            last unless $self->_parse_multipart_body($boundary);
-        }
-    }
+sub new {
+  my $self = shift->SUPER::new(@_);
+  $self->on(read => \&_read);
+  return $self;
 }
 
 sub _parse_multipart_body {
-    my ($self, $boundary) = @_;
+  my ($self, $boundary) = @_;
 
-    my $pos = $self->buffer->contains("\x0d\x0a--$boundary");
-
-    # Make sure we have enough buffer to detect end boundary
-    if ($pos < 0) {
-        my $length = $self->buffer->size - (length($boundary) + 8);
-        return unless $length > 0;
-
-        # Store chunk
-        my $chunk = $self->buffer->remove($length);
-        $self->parts->[-1] = $self->parts->[-1]->parse($chunk);
-        return;
-    }
+  # Whole part in buffer
+  my $pos = index $self->{multipart}, "\x0d\x0a--$boundary";
+  if ($pos < 0) {
+    my $len = length($self->{multipart}) - (length($boundary) + 8);
+    return undef unless $len > 0;
 
     # Store chunk
-    my $chunk = $self->buffer->remove($pos);
+    my $chunk = substr $self->{multipart}, 0, $len, '';
     $self->parts->[-1] = $self->parts->[-1]->parse($chunk);
-    $self->state('multipart_boundary');
-    return 1;
+    return undef;
+  }
+
+  # Store chunk
+  my $chunk = substr $self->{multipart}, 0, $pos, '';
+  $self->parts->[-1] = $self->parts->[-1]->parse($chunk);
+  return !!($self->{multi_state} = 'multipart_boundary');
 }
 
 sub _parse_multipart_boundary {
-    my ($self, $boundary) = @_;
+  my ($self, $boundary) = @_;
 
-    # Begin
-    if ($self->buffer->contains("\x0d\x0a--$boundary\x0d\x0a") == 0) {
-        $self->buffer->remove(length($boundary) + 6);
-        push @{$self->parts}, Mojo::Content::Single->new(relaxed => 1);
-        $self->state('multipart_body');
-        return 1;
-    }
+  # Boundary begins
+  if ((index $self->{multipart}, "\x0d\x0a--$boundary\x0d\x0a") == 0) {
+    substr $self->{multipart}, 0, length($boundary) + 6, '';
 
-    # End
-    my $end = "\x0d\x0a--$boundary--";
-    if ($self->buffer->contains($end) == 0) {
-        $self->buffer->remove(length $end);
-        $self->done;
-    }
+    # New part
+    my $part = Mojo::Content::Single->new(relaxed => 1);
+    $self->emit(part => $part);
+    push @{$self->parts}, $part;
+    return !!($self->{multi_state} = 'multipart_body');
+  }
 
-    return;
+  # Boundary ends
+  my $end = "\x0d\x0a--$boundary--";
+  if ((index $self->{multipart}, $end) == 0) {
+    substr $self->{multipart}, 0, length $end, '';
+    $self->{multi_state} = 'finished';
+  }
+
+  return undef;
 }
 
 sub _parse_multipart_preamble {
-    my ($self, $boundary) = @_;
+  my ($self, $boundary) = @_;
 
-    # Replace preamble with CRLF
-    my $pos = $self->buffer->contains("--$boundary");
-    unless ($pos < 0) {
-        $self->buffer->remove($pos, "\x0d\x0a");
-        $self->state('multipart_boundary');
-        return 1;
+  # No boundary yet
+  return undef if (my $pos = index $self->{multipart}, "--$boundary") < 0;
+
+  # Replace preamble with carriage return and line feed
+  substr $self->{multipart}, 0, $pos, "\x0d\x0a";
+
+  # Parse boundary
+  return !!($self->{multi_state} = 'multipart_boundary');
+}
+
+sub _read {
+  my ($self, $chunk) = @_;
+
+  $self->{multipart} .= $chunk;
+  my $boundary = $self->boundary;
+  until (($self->{multi_state} //= 'multipart_preamble') eq 'finished') {
+
+    # Preamble
+    if ($self->{multi_state} eq 'multipart_preamble') {
+      last unless $self->_parse_multipart_preamble($boundary);
     }
-    return;
+
+    # Boundary
+    elsif ($self->{multi_state} eq 'multipart_boundary') {
+      last unless $self->_parse_multipart_boundary($boundary);
+    }
+
+    # Body
+    elsif ($self->{multi_state} eq 'multipart_body') {
+      last unless $self->_parse_multipart_body($boundary);
+    }
+  }
+
+  # Check buffer size
+  @$self{qw(state limit)} = ('finished', 1)
+    if length($self->{multipart} // '') > $self->max_buffer_size;
 }
 
 1;
-__END__
+
+=encoding utf8
 
 =head1 NAME
 
-Mojo::Content::MultiPart - MultiPart Content
+Mojo::Content::MultiPart - HTTP multipart content
 
 =head1 SYNOPSIS
 
-    use Mojo::Content::MultiPart;
+  use Mojo::Content::MultiPart;
 
-    my $content = Mojo::Content::MultiPart->new;
-    $content->parse('Content-Type: multipart/mixed; boundary=---foobar');
-    my $part = $content->parts->[4];
+  my $multi = Mojo::Content::MultiPart->new;
+  $multi->parse('Content-Type: multipart/mixed; boundary=---foobar');
+  my $single = $multi->parts->[4];
 
 =head1 DESCRIPTION
 
-L<Mojo::Content::MultiPart> is a container for HTTP multipart content.
+L<Mojo::Content::MultiPart> is a container for HTTP multipart content based on
+L<RFC 7230|http://tools.ietf.org/html/rfc7230>,
+L<RFC 7231|http://tools.ietf.org/html/rfc7231> and
+L<RFC 2388|http://tools.ietf.org/html/rfc2388>.
+
+=head1 EVENTS
+
+L<Mojo::Content::Multipart> inherits all events from L<Mojo::Content> and can
+emit the following new ones.
+
+=head2 part
+
+  $multi->on(part => sub {
+    my ($multi, $single) = @_;
+    ...
+  });
+
+Emitted when a new L<Mojo::Content::Single> part starts.
+
+  $multi->on(part => sub {
+    my ($multi, $single) = @_;
+    return unless $single->headers->content_disposition =~ /name="([^"]+)"/;
+    say "Field: $1";
+  });
 
 =head1 ATTRIBUTES
 
-L<Mojo::Content::MultiPart> inherits all attributes from L<Mojo::Content>
-and implements the following new ones.
+L<Mojo::Content::MultiPart> inherits all attributes from L<Mojo::Content> and
+implements the following new ones.
 
-=head2 C<parts>
+=head2 parts
 
-    my $parts = $content->parts;
+  my $parts = $multi->parts;
+  $multi    = $multi->parts([]);
+
+Content parts embedded in this multipart content, usually
+L<Mojo::Content::Single> objects.
 
 =head1 METHODS
 
 L<Mojo::Content::MultiPart> inherits all methods from L<Mojo::Content> and
 implements the following new ones.
 
-=head2 C<body_contains>
+=head2 body_contains
 
-    my $found = $content->body_contains('foobarbaz');
+  my $bool = $multi->body_contains('foobarbaz');
 
-=head2 C<body_size>
+Check if content parts contain a specific string.
 
-    my $size = $content->body_size;
+=head2 body_size
 
-=head2 C<build_boundary>
+  my $size = $multi->body_size;
 
-    my $boundary = $content->build_boundary;
+Content size in bytes.
 
-=head2 C<get_body_chunk>
+=head2 build_boundary
 
-    my $chunk = $content->get_body_chunk(0);
+  my $boundary = $multi->build_boundary;
 
-=head2 C<parse>
+Generate a suitable boundary for content and add it to C<Content-Type> header.
 
-    $content = $content->parse('Content-Type: multipart/mixed');
+=head2 clone
+
+  my $clone = $multi->clone;
+
+Clone content if possible, otherwise return C<undef>.
+
+=head2 get_body_chunk
+
+  my $bytes = $multi->get_body_chunk(0);
+
+Get a chunk of content starting from a specific position.
+
+=head2 is_multipart
+
+  my $true = $multi->is_multipart;
+
+True.
+
+=head2 new
+
+  my $multi = Mojo::Content::MultiPart->new;
+
+Construct a new L<Mojo::Content::MultiPart> object and subscribe to L</"read">
+event with default content parser.
+
+=head1 SEE ALSO
+
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =cut

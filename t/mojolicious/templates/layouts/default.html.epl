@@ -1,9 +1,8 @@
-%# I didn’t think it was physically possible, but this both sucks *and*
-%# blows.
 % my $self = shift;
-<!doctype html><html>
+<!DOCTYPE html>
+<html>
 <head></head>
 <body>
-<%= $self->render_partial(template => '23') %><%= $self->render_inner %>
+<%= $self->render_to_string(template => '23') %><%= $self->content %>
 </body>
 </html>
